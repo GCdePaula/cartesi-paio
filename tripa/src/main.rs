@@ -1,9 +1,13 @@
+use alloy_core::primitives::Address as Ad;
+use alloy_signer::SignerSync;
+use alloy_signer_wallet::LocalWallet;
 use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use message::{SignedTransaction as ST, SigningMessage, DOMAIN};
 use mime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,6 +15,27 @@ use std::sync::Arc;
 
 type Address = u8; // placeholder until we add the real thing
 type U256 = u16; // placeholder until we add the real thing
+
+fn produce_tx() -> (String, Ad) {
+    let json = r#"
+        {
+            "app":"0x0000000000000000000000000000000000000000",
+            "nonce":0,
+            "max_gas_price":0,
+            "data":"0x48656c6c6f2c20576f726c6421"
+        }
+        "#;
+
+    let v: SigningMessage = serde_json::from_str(json).unwrap();
+    let signer = LocalWallet::random();
+    let signature = signer.sign_typed_data_sync(&v, &DOMAIN).unwrap();
+    let signed_tx = ST {
+        message: v,
+        signature,
+    };
+
+    (serde_json::to_string(&signed_tx).unwrap(), signer.address())
+}
 
 struct Lambda {
     wallet_state: WalletState,
@@ -30,14 +55,14 @@ fn mock_lambda() -> Lambda {
     let mut nonces_john = HashMap::new();
     nonces_john.insert(3, 2);
     nonces_john.insert(23, 22);
-    let mut john = Wallet {
+    let john = Wallet {
         nonce: nonces_john,
         balance: 234,
     };
     let mut nonces_joe = HashMap::new();
     nonces_joe.insert(1, 92);
     nonces_joe.insert(22, 111);
-    let mut joe = Wallet {
+    let joe = Wallet {
         nonce: nonces_joe,
         balance: 98,
     };
@@ -50,7 +75,7 @@ fn mock_lambda() -> Lambda {
 
 #[tokio::main]
 async fn main() {
-    let mut lambda = mock_lambda();
+    let lambda = mock_lambda();
     let shared_state = Arc::new(lambda);
 
     // initialize tracing
@@ -108,7 +133,7 @@ struct Nonce {
 }
 
 async fn gas_price(
-    State(state): State<Arc<Lambda>>,
+    State(_state): State<Arc<Lambda>>,
 ) -> (StatusCode, Json<Gas>) {
     // TODO: add logic to get gas price
     let gas = Gas { gas_price: 22 };
@@ -122,7 +147,7 @@ struct Gas {
 }
 
 async fn submit_transaction(
-    State(state): State<Arc<Lambda>>,
+    State(_state): State<Arc<Lambda>>,
     Json(payload): Json<SignedTransaction>,
 ) -> Result<(), StatusCode> {
     println!("Received transaction with temperos {:?}", payload.temperos);
@@ -145,7 +170,7 @@ struct SignedTransaction {
 /// Having a function that produces our app makes it easy to call it from tests
 /// without having to create an HTTP server.
 fn app() -> Router {
-    let mut lambda = mock_lambda();
+    let lambda = mock_lambda();
     let shared_state = Arc::new(lambda);
 
     Router::new()
@@ -160,13 +185,11 @@ mod tests {
     use super::*;
     use axum::{
         body::Body,
-        extract::connect_info::MockConnectInfo,
         http::{self, Request, StatusCode},
     };
     use http_body_util::BodyExt; // for `collect`
-    use serde_json::{json, Value};
-    use tokio::net::TcpListener;
-    use tower::{Service, ServiceExt}; // for `call`, `oneshot`, and `ready`
+    use serde_json::json;
+    use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
     #[tokio::test]
     async fn gas() {

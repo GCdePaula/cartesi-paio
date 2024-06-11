@@ -12,3 +12,7 @@ serde_json = "1.0.117"
 tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
 tower = "0.4.13"
 tracing-subscriber = "0.3.18"
+message = { path = "../message" }
+alloy-core = { version = "0.7.6", features = ["sol-types", "serde"] }
+alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
+alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
