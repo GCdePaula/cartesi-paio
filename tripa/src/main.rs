@@ -40,6 +40,7 @@ struct WalletState {
 }
 
 struct Wallet {
+    // TODO: use nonce type from message crate
     nonce: HashMap<Address, u64>,
     balance: U256,
 }
@@ -117,8 +118,8 @@ async fn nonce(
 // the input to `nonce` handler
 #[derive(Serialize, Deserialize, Debug)]
 struct NonceIdentifier {
-    application: Address,
     user: Address,
+    application: Address,
 }
 
 // the output of `nonce` handler
@@ -129,17 +130,14 @@ struct Nonce {
 
 async fn gas_price(
     State(_state): State<Arc<Lambda>>,
-) -> (StatusCode, Json<Gas>) {
+) -> (StatusCode, Json<GasPrice>) {
     // TODO: add logic to get gas price
-    let gas = Gas { gas_price: 22 };
+    let gas: GasPrice = 22;
     (StatusCode::OK, Json(gas))
 }
 
 // the output of `gas` handler
-#[derive(Serialize)]
-struct Gas {
-    gas_price: u64,
-}
+type GasPrice = u64;
 
 async fn submit_transaction(
     State(_state): State<Arc<Lambda>>,
@@ -192,18 +190,12 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&body[..], b"{\"gas_price\":22}");
+        assert_eq!(&body[..], b"22");
     }
 
     #[tokio::test]
     async fn transaction() {
         let app = app();
-        // let signing_transaction = SigningTransaction {
-        //     app: address!("0000000000000000000000000000000000000003"),
-        //     nonce: 12,
-        //     max_gas_price: 22,
-        //     data: vec![],
-        // };
         let transaction = produce_tx();
         let response = app
             .oneshot(
