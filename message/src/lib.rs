@@ -1,10 +1,72 @@
+use std::collections::HashMap;
+
 use alloy_core::{
-    primitives::Address,
+    primitives::{Address, SignatureError},
     sol,
-    sol_types::{eip712_domain, Eip712Domain},
+    sol_types::{eip712_domain, Eip712Domain, SolStruct},
 };
 use alloy_signer::Signature;
+
 use serde::{Deserialize, Serialize};
+
+pub struct TransactionVerifier {
+    pub app: Option<Address>, // address app cares about, or none if all addresses
+    pub nonce_manager: NonceManager,
+}
+
+impl TransactionVerifier {
+    pub fn cares_about(&self, app: Address) -> bool {
+        match self.app {
+            None => true,
+            Some(a) if a == app => true,
+            Some(_) => false,
+        }
+    }
+
+    pub fn verify(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+        let batch: Batch = postcard::from_bytes(raw_batch)?;
+
+        Ok(batch
+            .txs
+            .iter()
+            .filter_map(|tx| {
+                if !self.cares_about(tx.app) {
+                    return None;
+                }
+
+                let Some(tx) = tx.verify(&DOMAIN) else {
+                    return None;
+                };
+
+                let app_nonces = self.nonce_manager.app_nonces.entry(tx.app).or_default();
+                let expected_nonce = app_nonces.nonces.entry(tx.sender).or_insert(0);
+
+                if *expected_nonce != tx.nonce {
+                    return None;
+                }
+
+                *expected_nonce += 1;
+                Some(tx)
+            })
+            .collect())
+    }
+}
+
+pub struct NonceManager {
+    pub app_nonces: HashMap<Address, AppNonces>,
+}
+
+pub struct AppNonces {
+    pub nonces: HashMap<Address, u64>,
+}
+
+impl Default for AppNonces {
+    fn default() -> Self {
+        Self {
+            nonces: HashMap::new(),
+        }
+    }
+}
 
 pub struct Transaction {
     pub sender: Address,
@@ -25,12 +87,70 @@ sol! {
     }
 }
 
-pub type WireTransaction = SigningMessage; // TODO
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WireTransaction {
+    pub app: Address,
+    pub nonce: u64,
+    pub max_gas_price: u64,
+    pub data: Vec<u8>,
+    pub signature: Signature,
+}
+
+impl WireTransaction {
+    pub fn from_signing_message(value: &SignedTransaction) -> Self {
+        Self {
+            app: value.message.app,
+            nonce: value.message.nonce,
+            max_gas_price: value.message.max_gas_price,
+            data: value.message.data.to_vec(),
+            signature: value.signature,
+        }
+    }
+
+    pub fn to_signing_message(&self) -> SignedTransaction {
+        SignedTransaction {
+            message: SigningMessage {
+                app: self.app,
+                nonce: self.nonce,
+                max_gas_price: self.max_gas_price,
+                data: self.data.clone().into(),
+            },
+            signature: self.signature,
+        }
+    }
+
+    pub fn verify(&self, domain: &Eip712Domain) -> Option<Transaction> {
+        let Ok(sender) = self.to_signing_message().recover(domain) else {
+            return None;
+        };
+
+        Some(Transaction {
+            sender,
+            app: self.app,
+            nonce: self.nonce,
+            max_gas_price: self.max_gas_price,
+            data: self.data.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Batch {
+    pub sequencer_payment_address: Address,
+    pub txs: Vec<WireTransaction>,
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedTransaction {
     pub message: SigningMessage,
     pub signature: Signature,
+}
+
+impl SignedTransaction {
+    pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
+        let signing_hash = self.message.eip712_signing_hash(&domain);
+        self.signature.recover_address_from_prehash(&signing_hash)
+    }
 }
 
 pub const DOMAIN: Eip712Domain = eip712_domain!(
