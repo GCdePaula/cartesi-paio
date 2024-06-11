@@ -1,4 +1,4 @@
-use alloy_core::primitives::Address as Ad;
+use alloy_core::primitives::{address, Address, U256};
 use alloy_signer::SignerSync;
 use alloy_signer_wallet::LocalWallet;
 use axum::{
@@ -7,16 +7,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use message::{SignedTransaction as ST, SigningMessage, DOMAIN};
-use mime;
+use message::{SignedTransaction, SigningMessage, DOMAIN};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-type Address = u8; // placeholder until we add the real thing
-type U256 = u16; // placeholder until we add the real thing
-
-fn produce_tx() -> (String, Ad) {
+fn produce_tx() -> SignedTransaction {
     let json = r#"
         {
             "app":"0x0000000000000000000000000000000000000000",
@@ -25,16 +21,13 @@ fn produce_tx() -> (String, Ad) {
             "data":"0x48656c6c6f2c20576f726c6421"
         }
         "#;
-
     let v: SigningMessage = serde_json::from_str(json).unwrap();
     let signer = LocalWallet::random();
     let signature = signer.sign_typed_data_sync(&v, &DOMAIN).unwrap();
-    let signed_tx = ST {
+    SignedTransaction {
         message: v,
         signature,
-    };
-
-    (serde_json::to_string(&signed_tx).unwrap(), signer.address())
+    }
 }
 
 struct Lambda {
@@ -53,22 +46,24 @@ struct Wallet {
 
 fn mock_lambda() -> Lambda {
     let mut nonces_john = HashMap::new();
-    nonces_john.insert(3, 2);
-    nonces_john.insert(23, 22);
+    nonces_john.insert(address!("0000000000000000000000000000000000000003"), 2);
+    nonces_john
+        .insert(address!("0000000000000000000000000000000000000023"), 22);
     let john = Wallet {
         nonce: nonces_john,
-        balance: 234,
+        balance: U256::from(234),
     };
     let mut nonces_joe = HashMap::new();
-    nonces_joe.insert(1, 92);
-    nonces_joe.insert(22, 111);
+    nonces_joe.insert(address!("0000000000000000000000000000000000000001"), 92);
+    nonces_joe
+        .insert(address!("0000000000000000000000000000000000000022"), 111);
     let joe = Wallet {
         nonce: nonces_joe,
-        balance: 98,
+        balance: U256::from(98),
     };
     let mut wallets = HashMap::new();
-    wallets.insert(99, john);
-    wallets.insert(45, joe);
+    wallets.insert(address!("0000000000000000000000000000000000000099"), john);
+    wallets.insert(address!("0000000000000000000000000000000000000045"), joe);
     let wallet_state = WalletState { wallets };
     Lambda { wallet_state }
 }
@@ -106,7 +101,7 @@ async fn nonce(
     );
     let null_wallet = Wallet {
         nonce: HashMap::new(),
-        balance: 0,
+        balance: U256::from(0),
     };
     let user_wallet = state
         .wallet_state
@@ -150,21 +145,15 @@ async fn submit_transaction(
     State(_state): State<Arc<Lambda>>,
     Json(payload): Json<SignedTransaction>,
 ) -> Result<(), StatusCode> {
-    println!("Received transaction with temperos {:?}", payload.temperos);
+    //println!("Received transaction with temperos {:?}", payload.temperos);
 
-    if payload.temperos > 0 {
-        // this will be converted into a status code `200 OK`
-        // TODO: convert this into the status code `201 Created`
-        Ok(())
-    } else {
-        Err(StatusCode::PAYMENT_REQUIRED)
-    }
-}
-
-// the input to `submit_transaction` handler
-#[derive(Serialize, Deserialize, Debug)]
-struct SignedTransaction {
-    temperos: i16,
+    //if payload.temperos > 0 {
+    // this will be converted into a status code `200 OK`
+    // TODO: convert this into the status code `201 Created`
+    Ok(())
+    //} else {
+    //    Err(StatusCode::PAYMENT_REQUIRED)
+    //}
 }
 
 /// Having a function that produces our app makes it easy to call it from tests
@@ -188,6 +177,7 @@ mod tests {
         http::{self, Request, StatusCode},
     };
     use http_body_util::BodyExt; // for `collect`
+    use mime;
     use serde_json::json;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
@@ -208,7 +198,13 @@ mod tests {
     #[tokio::test]
     async fn transaction() {
         let app = app();
-        let transaction = SignedTransaction { temperos: 20 };
+        // let signing_transaction = SigningTransaction {
+        //     app: address!("0000000000000000000000000000000000000003"),
+        //     nonce: 12,
+        //     max_gas_price: 22,
+        //     data: vec![],
+        // };
+        let transaction = produce_tx();
         let response = app
             .oneshot(
                 Request::builder()
@@ -230,37 +226,37 @@ mod tests {
         assert_eq!(&body[..], b"");
     }
 
-    #[tokio::test]
-    async fn transaction_failed() {
-        let app = app();
-        let transaction = SignedTransaction { temperos: -2 };
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/transaction")
-                    .method(http::Method::POST)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(transaction)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&body[..], b"");
-    }
+    // #[tokio::test]
+    // async fn transaction_failed() {
+    //     let app = app();
+    //     let transaction = SignedTransaction { temperos: -2 };
+    //     let response = app
+    //         .oneshot(
+    //             Request::builder()
+    //                 .uri("/transaction")
+    //                 .method(http::Method::POST)
+    //                 .header(
+    //                     http::header::CONTENT_TYPE,
+    //                     mime::APPLICATION_JSON.as_ref(),
+    //                 )
+    //                 .body(Body::from(
+    //                     serde_json::to_vec(&json!(transaction)).unwrap(),
+    //                 ))
+    //                 .unwrap(),
+    //         )
+    //         .await
+    //         .unwrap();
+    //     assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
+    //     let body = response.into_body().collect().await.unwrap().to_bytes();
+    //     assert_eq!(&body[..], b"");
+    // }
 
     #[tokio::test]
     async fn nonce() {
         let app = app();
         let nonce_id = NonceIdentifier {
-            application: 10,
-            user: 20,
+            application: address!("0000000000000000000000000000000000000010"),
+            user: address!("0000000000000000000000000000000000000020"),
         };
         let response = app
             .oneshot(
@@ -289,8 +285,8 @@ mod tests {
     async fn nonce_miss() {
         let app = app();
         let nonce_id = NonceIdentifier {
-            user: 99,
-            application: 3,
+            user: address!("0000000000000000000000000000000000000099"),
+            application: address!("0000000000000000000000000000000000000003"),
         };
         println!("{:?}", nonce_id);
         let response = app
