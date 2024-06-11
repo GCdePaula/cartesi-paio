@@ -10,7 +10,8 @@ use alloy_signer::Signature;
 use serde::{Deserialize, Serialize};
 
 pub struct TransactionVerifier {
-    pub app: Option<Address>, // address app cares about, or none if all addresses
+    pub domain: Eip712Domain,
+    pub app: Option<Address>, // address app cares about, or none if cares about all addresses
     pub nonce_manager: NonceManager,
 }
 
@@ -34,7 +35,7 @@ impl TransactionVerifier {
                     return None;
                 }
 
-                let Some(tx) = tx.verify(&DOMAIN) else {
+                let Some(tx) = tx.verify(&self.domain) else {
                     return None;
                 };
 
@@ -97,7 +98,7 @@ pub struct WireTransaction {
 }
 
 impl WireTransaction {
-    pub fn from_signing_message(value: &SignedTransaction) -> Self {
+    pub fn from_signed_transaction(value: &SignedTransaction) -> Self {
         Self {
             app: value.message.app,
             nonce: value.message.nonce,
@@ -107,7 +108,7 @@ impl WireTransaction {
         }
     }
 
-    pub fn to_signing_message(&self) -> SignedTransaction {
+    pub fn to_signed_transaction(&self) -> SignedTransaction {
         SignedTransaction {
             message: SigningMessage {
                 app: self.app,
@@ -120,7 +121,7 @@ impl WireTransaction {
     }
 
     pub fn verify(&self, domain: &Eip712Domain) -> Option<Transaction> {
-        let Ok(sender) = self.to_signing_message().recover(domain) else {
+        let Ok(sender) = self.to_signed_transaction().recover(domain) else {
             return None;
         };
 
@@ -140,6 +141,44 @@ pub struct Batch {
     pub txs: Vec<WireTransaction>,
 }
 
+impl Batch {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        postcard::to_stdvec(&self).unwrap()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BatchBuilder {
+    pub sequencer_payment_address: Address,
+    pub txs: Vec<SignedTransaction>,
+}
+
+impl BatchBuilder {
+    pub fn new(sequencer_payment_address: Address) -> Self {
+        Self {
+            sequencer_payment_address,
+            txs: Vec::new(),
+        }
+    }
+
+    pub fn add(&mut self, tx: SignedTransaction) {
+        self.txs.push(tx)
+    }
+
+    pub fn build(self) -> Batch {
+        let txs = self
+            .txs
+            .iter()
+            .map(WireTransaction::from_signed_transaction)
+            .collect();
+
+        Batch {
+            sequencer_payment_address: self.sequencer_payment_address,
+            txs,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedTransaction {
     pub message: SigningMessage,
@@ -147,6 +186,10 @@ pub struct SignedTransaction {
 }
 
 impl SignedTransaction {
+    pub fn valdiate(&self, domain: &Eip712Domain) -> bool {
+        self.recover(domain).is_ok()
+    }
+
     pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
         let signing_hash = self.message.eip712_signing_hash(&domain);
         self.signature.recover_address_from_prehash(&signing_hash)
