@@ -16,9 +16,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use toml;
 
-const SEQUENCER_ADDRESS: Address =
-    address!("0000000000000000000000000000022222222222");
-
 struct Lambda {
     wallet_state: WalletState,
     batch_builder: BatchBuilder,
@@ -28,6 +25,7 @@ struct Lambda {
 #[derive(Deserialize)]
 struct Config {
     base_url: String,
+    sequencer_address: Address,
 }
 
 type LambdaMutex = Mutex<Lambda>;
@@ -54,7 +52,7 @@ fn mock_lambda() -> Lambda {
     let config: Config = toml::from_str(&config_string).unwrap();
     Lambda {
         wallet_state,
-        batch_builder: BatchBuilder::new(SEQUENCER_ADDRESS),
+        batch_builder: BatchBuilder::new(config.sequencer_address),
         config,
     }
 }
@@ -165,11 +163,11 @@ async fn submit_transaction(
         ));
     }
 
-    let transaction_opt = state
-        .lock()
-        .await
+    let mut state_lock = state.lock().await;
+    let sequencer_address = state_lock.config.sequencer_address.clone();
+    let transaction_opt = state_lock
         .wallet_state
-        .verify_single(SEQUENCER_ADDRESS, &payload);
+        .verify_single(sequencer_address, &payload);
 
     state
         .lock()
