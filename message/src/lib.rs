@@ -20,28 +20,43 @@ pub struct WalletState {
 }
 
 impl WalletState {
-    pub fn verify_batch(&mut self, batch: Batch) -> postcard::Result<Vec<Transaction>> {
-        Ok(batch
+    pub fn verify_batch(&mut self, batch: Batch) -> Vec<Transaction> {
+        batch
             .txs
             .iter()
             .filter_map(|tx| {
-                let app_nonce = self.app_nonces.entry(tx.app).or_default();
-                let tx_opt = app_nonce.verify_tx(tx, &self.domain);
-
-                if let Some(ref tx) = tx_opt {
-                    let cost = U256::from(tx.max_gas_price) * U256::from(tx.data.len());
-                    let payment = self.withdraw_forced(tx.sender, cost);
-                    self.deposit(batch.sequencer_payment_address, payment);
-                }
-
-                tx_opt
+                self.verify_single(batch.sequencer_payment_address, tx)
             })
-            .collect())
+            .collect()
+    }
+    // TODO: create custom error type in order to explain why it did not work
+    pub fn verify_single(
+        &mut self,
+        sequencer_payment_address: Address,
+        tx: &WireTransaction,
+    ) -> Option<Transaction> {
+        let app_nonce = self.app_nonces.entry(tx.app).or_default();
+        let tx_opt = app_nonce.verify_tx(tx, &self.domain);
+
+        if let Some(ref tx) = tx_opt {
+            let cost_opt = tx.cost();
+            let payment = if let Some(cost) = cost_opt {
+                self.withdraw_forced(tx.sender, cost)
+            } else {
+                self.withdraw_forced(tx.sender, U256::MAX)
+            };
+            self.deposit(sequencer_payment_address, payment);
+        }
+
+        tx_opt
     }
 
-    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(
+        &mut self,
+        raw_batch: &[u8],
+    ) -> postcard::Result<Vec<Transaction>> {
         let batch = Batch::from_bytes(raw_batch)?;
-        self.verify_batch(batch)
+        Ok(self.verify_batch(batch))
     }
 
     pub fn deposit(&mut self, user: Address, value: U256) {
@@ -62,6 +77,19 @@ impl WalletState {
     }
 }
 
+impl WalletState {
+    pub fn new() -> Self {
+        WalletState {
+            domain: DOMAIN.clone(),
+            app_nonces: HashMap::new(),
+            balances: HashMap::new(),
+        }
+    }
+    pub fn add_app_nonce(&mut self, address: Address, nonces: AppNonces) {
+        self.app_nonces.insert(address, nonces);
+    }
+}
+
 pub struct AppState {
     pub domain: Eip712Domain,
     pub address: Address,
@@ -69,8 +97,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn verify_batch(&mut self, batch: Batch) -> postcard::Result<Vec<Transaction>> {
-        Ok(batch
+    pub fn verify_batch(&mut self, batch: Batch) -> Vec<Transaction> {
+        batch
             .txs
             .iter()
             .filter_map(|tx| {
@@ -80,12 +108,15 @@ impl AppState {
 
                 self.nonces.verify_tx(tx, &self.domain)
             })
-            .collect())
+            .collect()
     }
 
-    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(
+        &mut self,
+        raw_batch: &[u8],
+    ) -> postcard::Result<Vec<Transaction>> {
         let batch = Batch::from_bytes(raw_batch)?;
-        self.verify_batch(batch)
+        Ok(self.verify_batch(batch))
     }
 }
 
@@ -95,6 +126,17 @@ pub struct AppNonces {
 }
 
 impl AppNonces {
+    pub fn new() -> Self {
+        AppNonces {
+            nonces: HashMap::new(),
+        }
+    }
+    pub fn set_nonce(&mut self, address: Address, value: u64) {
+        self.nonces.insert(address, value);
+    }
+    pub fn get_nonce(&self, address: &Address) -> Option<&u64> {
+        self.nonces.get(address)
+    }
     pub fn verify_tx(
         &mut self,
         tx: &WireTransaction,
@@ -130,6 +172,15 @@ pub struct Transaction {
     pub max_gas_price: u64,
 
     pub data: Vec<u8>,
+}
+
+impl Transaction {
+    pub fn cost(&self) -> Option<U256> {
+        U256::checked_mul(
+            U256::from(self.max_gas_price),
+            U256::from(self.data.len()),
+        )
+    }
 }
 
 sol! {
@@ -205,7 +256,7 @@ impl Batch {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct BatchBuilder {
     pub sequencer_payment_address: Address,
     pub txs: Vec<SignedTransaction>,
@@ -237,7 +288,7 @@ impl BatchBuilder {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SignedTransaction {
     pub message: SigningMessage,
     pub signature: Signature,
@@ -248,7 +299,10 @@ impl SignedTransaction {
         self.recover(domain).is_ok()
     }
 
-    pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
+    pub fn recover(
+        &self,
+        domain: &Eip712Domain,
+    ) -> Result<Address, SignatureError> {
         let signing_hash = self.message.eip712_signing_hash(&domain);
         self.signature.recover_address_from_prehash(&signing_hash)
     }
