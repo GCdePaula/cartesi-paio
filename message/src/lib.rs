@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use alloy_core::{
-    primitives::{Address, SignatureError},
+    primitives::{Address, SignatureError, U256},
     sol,
     sol_types::{eip712_domain, Eip712Domain, SolStruct},
 };
@@ -9,56 +9,79 @@ use alloy_signer::Signature;
 
 use serde::{Deserialize, Serialize};
 
-pub struct TransactionVerifier {
+pub struct WalletState {
     pub domain: Eip712Domain,
-    pub app: Option<Address>, // address app cares about, or none if cares about all addresses
-    pub nonce_manager: NonceManager,
+
+    // app address to app state
+    pub app_nonces: HashMap<Address, AppNonces>,
+
+    // user address to balance
+    pub balances: HashMap<Address, U256>,
 }
 
-impl TransactionVerifier {
-    pub fn cares_about(&self, app: Address) -> bool {
-        match self.app {
-            None => true,
-            Some(a) if a == app => true,
-            Some(_) => false,
-        }
-    }
-
-    pub fn verify(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+impl WalletState {
+    pub fn verify_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
         let batch: Batch = postcard::from_bytes(raw_batch)?;
 
         Ok(batch
             .txs
             .iter()
             .filter_map(|tx| {
-                if !self.cares_about(tx.app) {
-                    return None;
-                }
-
-                let Some(tx) = tx.verify(&self.domain) else {
-                    return None;
-                };
-
-                let app_nonces = self.nonce_manager.app_nonces.entry(tx.app).or_default();
-                let expected_nonce = app_nonces.nonces.entry(tx.sender).or_insert(0);
-
-                if *expected_nonce != tx.nonce {
-                    return None;
-                }
-
-                *expected_nonce += 1;
-                Some(tx)
+                let app_nonce = self.app_nonces.entry(tx.app).or_default();
+                app_nonce.verify_tx(tx, &self.domain)
             })
             .collect())
     }
 }
 
-pub struct NonceManager {
-    pub app_nonces: HashMap<Address, AppNonces>,
+pub struct AppState {
+    pub domain: Eip712Domain,
+    pub address: Address,
+    pub nonces: AppNonces,
+}
+
+impl AppState {
+    pub fn verify_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+        let batch: Batch = postcard::from_bytes(raw_batch)?;
+
+        Ok(batch
+            .txs
+            .iter()
+            .filter_map(|tx| {
+                if self.address != tx.app {
+                    return None;
+                }
+
+                self.nonces.verify_tx(tx, &self.domain)
+            })
+            .collect())
+    }
 }
 
 pub struct AppNonces {
+    // user address to nonce
     pub nonces: HashMap<Address, u64>,
+}
+
+impl AppNonces {
+    pub fn verify_tx(
+        &mut self,
+        tx: &WireTransaction,
+        domain: &Eip712Domain,
+    ) -> Option<Transaction> {
+        let Some(tx) = tx.verify(&domain) else {
+            return None;
+        };
+
+        let expected_nonce = self.nonces.entry(tx.sender).or_insert(0);
+
+        if *expected_nonce != tx.nonce {
+            return None;
+        }
+
+        *expected_nonce += 1;
+        Some(tx)
+    }
 }
 
 impl Default for AppNonces {
