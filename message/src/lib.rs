@@ -26,14 +26,39 @@ impl WalletState {
             .iter()
             .filter_map(|tx| {
                 let app_nonce = self.app_nonces.entry(tx.app).or_default();
-                app_nonce.verify_tx(tx, &self.domain)
+                let tx_opt = app_nonce.verify_tx(tx, &self.domain);
+
+                if let Some(ref tx) = tx_opt {
+                    let cost = U256::from(tx.max_gas_price) * U256::from(tx.data.len());
+                    let payment = self.withdraw_forced(tx.sender, cost);
+                    self.deposit(batch.sequencer_payment_address, payment);
+                }
+
+                tx_opt
             })
             .collect())
     }
 
     pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
-        let batch: Batch = postcard::from_bytes(raw_batch)?;
+        let batch = Batch::from_bytes(raw_batch)?;
         self.verify_batch(batch)
+    }
+
+    pub fn deposit(&mut self, user: Address, value: U256) {
+        let balance = self.balances.entry(user).or_default();
+        *balance += value;
+    }
+
+    pub fn withdraw_forced(&mut self, user: Address, value: U256) -> U256 {
+        let balance = self.balances.entry(user).or_default();
+        if *balance < value {
+            let prev = *balance;
+            *balance = U256::ZERO;
+            prev
+        } else {
+            *balance -= value;
+            value
+        }
     }
 }
 
@@ -59,7 +84,7 @@ impl AppState {
     }
 
     pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
-        let batch: Batch = postcard::from_bytes(raw_batch)?;
+        let batch = Batch::from_bytes(raw_batch)?;
         self.verify_batch(batch)
     }
 }
@@ -173,6 +198,10 @@ pub struct Batch {
 impl Batch {
     pub fn to_bytes(&self) -> Vec<u8> {
         postcard::to_stdvec(&self).unwrap()
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> postcard::Result<Self> {
+        postcard::from_bytes(bytes)
     }
 }
 
