@@ -11,8 +11,10 @@ use axum::{
 use message::WireTransaction;
 use message::{AppNonces, BatchBuilder, WalletState, DOMAIN};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use toml;
 
 const SEQUENCER_ADDRESS: Address =
     address!("0000000000000000000000000000022222222222");
@@ -20,6 +22,12 @@ const SEQUENCER_ADDRESS: Address =
 struct Lambda {
     wallet_state: WalletState,
     batch_builder: BatchBuilder,
+    config: Config,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    base_url: String,
 }
 
 type LambdaMutex = Mutex<Lambda>;
@@ -41,9 +49,13 @@ fn mock_lambda() -> Lambda {
     wallet_state.deposit(john_address, U256::from(123));
     wallet_state.deposit(joe_address, U256::from(321));
     wallet_state.deposit(signer_address, U256::from(30000000));
+
+    let config_string = fs::read_to_string("config.toml").unwrap();
+    let config: Config = toml::from_str(&config_string).unwrap();
     Lambda {
         wallet_state,
         batch_builder: BatchBuilder::new(SEQUENCER_ADDRESS),
+        config,
     }
 }
 
@@ -55,7 +67,6 @@ async fn main() {
     // initialize tracing
     tracing_subscriber::fmt::init();
 
-    // TODO: get everything necessary for EIP 712's domain
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
         .route("/nonce", get(get_nonce))

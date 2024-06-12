@@ -16,3 +16,4 @@ message = { path = "../message" }
 alloy-core = { version = "0.7.6", features = ["sol-types", "serde"] }
 alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
 alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
+toml = "0.8.14"
