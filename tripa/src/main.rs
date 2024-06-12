@@ -1,4 +1,7 @@
-use alloy_core::primitives::{address, Address, U256};
+use alloy_core::{
+    primitives::{address, Address, U256},
+    sol_types::Eip712Domain,
+};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -53,10 +56,11 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // TODO: get everything necessary for EIP 712's domain
-    // TODO: add an endpoint to get the DOMAIN
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
         .route("/nonce", get(get_nonce))
+        // `GET /domain` gets the domain
+        .route("/domain", get(get_domain))
         // `GET /gas` gets price of gas (see gas function)
         .route("/gas", get(gas_price))
         // `POST /transaction` posts a transaction
@@ -118,6 +122,13 @@ async fn gas_price(
     // TODO: add logic to get gas price
     let gas: GasPrice = get_gas_price(state).await;
     (StatusCode::OK, Json(gas))
+}
+
+async fn get_domain(
+    State(_state): State<Arc<LambdaMutex>>,
+) -> (StatusCode, Json<Eip712Domain>) {
+    // TODO: add logic to get gas price
+    (StatusCode::OK, Json(DOMAIN))
 }
 
 async fn get_gas_price(_state: Arc<LambdaMutex>) -> GasPrice {
@@ -209,6 +220,7 @@ mod tests {
         Router::new()
             .route("/nonce", get(get_nonce))
             .route("/gas", get(gas_price))
+            .route("/domain", get(get_domain))
             .route("/transaction", post(submit_transaction))
             .route("/batch", get(get_batch))
             .with_state(shared_state)
@@ -226,6 +238,24 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"22");
+    }
+
+    #[tokio::test]
+    async fn domain() {
+        let app = app();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/domain")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        println!("{:?}", &body);
+        assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0x539\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
     }
 
     #[tokio::test]
