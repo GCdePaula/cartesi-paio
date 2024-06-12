@@ -20,9 +20,7 @@ pub struct WalletState {
 }
 
 impl WalletState {
-    pub fn verify_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
-        let batch: Batch = postcard::from_bytes(raw_batch)?;
-
+    pub fn verify_batch(&mut self, batch: Batch) -> postcard::Result<Vec<Transaction>> {
         Ok(batch
             .txs
             .iter()
@@ -31,6 +29,11 @@ impl WalletState {
                 app_nonce.verify_tx(tx, &self.domain)
             })
             .collect())
+    }
+
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+        let batch: Batch = postcard::from_bytes(raw_batch)?;
+        self.verify_batch(batch)
     }
 }
 
@@ -41,9 +44,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn verify_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
-        let batch: Batch = postcard::from_bytes(raw_batch)?;
-
+    pub fn verify_batch(&mut self, batch: Batch) -> postcard::Result<Vec<Transaction>> {
         Ok(batch
             .txs
             .iter()
@@ -55,6 +56,11 @@ impl AppState {
                 self.nonces.verify_tx(tx, &self.domain)
             })
             .collect())
+    }
+
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
+        let batch: Batch = postcard::from_bytes(raw_batch)?;
+        self.verify_batch(batch)
     }
 }
 
