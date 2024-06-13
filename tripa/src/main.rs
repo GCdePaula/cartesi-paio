@@ -60,9 +60,10 @@ impl Lambda {
         let input_contract =
             INPUT_BOX::new(self.config.input_box_address, provider);
 
+        println!("Building ...");
         // TODO: calculate gas needed
         // TODO: calculate gas price
-        let _ = input_contract
+        let output = input_contract
             .addInput(
                 self.config.input_box_address,
                 Bytes::copy_from_slice(&batch.clone().to_bytes()),
@@ -71,6 +72,8 @@ impl Lambda {
             .await?
             .watch()
             .await?;
+        println!("Finished");
+        println!("{:?}", output);
 
         // TODO: do some error handling
         Ok(())
@@ -476,7 +479,9 @@ mod tests {
         // here we ommit the signature and only look at the first bytes,
         // because the signature changes every time.
         assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
-        let _ = state.lock().await.build_batch();
+        println!("Before building batch");
+        state.lock().await.build_batch().await.unwrap();
+        println!("After building batch");
     }
 
     #[tokio::test]
