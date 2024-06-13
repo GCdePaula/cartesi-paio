@@ -1,0 +1,3 @@
+[submodule "example/frontend/eip712"]
+	path = example/frontend/eip712
+	url = https://github.com/jjhbk/eip712
