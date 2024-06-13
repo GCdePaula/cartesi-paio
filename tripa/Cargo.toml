@@ -23,3 +23,8 @@ alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0
 anyhow = "1.0.86"
 alloy = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
 alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy-json-abi = "0.7.6"
+

@@ -1,2 +1,3 @@
 base_url = "http://127.0.0.1:8545"
 sequencer_address = "0x0000000000000000000000000000022222222222"
+sequencer_signer_string = "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7"

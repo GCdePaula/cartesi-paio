@@ -2,8 +2,12 @@ use alloy_core::{
     primitives::{address, Address, U256},
     sol_types::Eip712Domain,
 };
+//use alloy_jso
+use alloy_network::EthereumSigner;
+use alloy_network::TransactionBuilder;
 use alloy_node_bindings::AnvilInstance;
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rpc_types::TransactionRequest;
 use alloy_transport_http;
 use anyhow::Error;
 use axum::{
@@ -29,10 +33,56 @@ struct Lambda {
     _anvil_instance: Option<AnvilInstance>,
 }
 
+impl Lambda {
+    async fn build_batch(&self) -> Result<(), Error> {
+        let signer = self
+            .config
+            .sequencer_signer_string
+            .parse::<alloy_signer_wallet::LocalWallet>()
+            .expect("Could not parse sequencer signature");
+
+        let batch = self.batch_builder.clone().build();
+
+        // TODO: try to use the same provider, it seems that adding a signer makes
+        // it non-Send, so it cannot be part of axum state. or something.
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .signer(EthereumSigner::from(signer))
+            .on_http(self.config.base_url.parse().unwrap());
+
+        let nonce = provider
+            .get_transaction_count(self.config.sequencer_address)
+            .await?;
+
+        let chain_id: u64 = DOMAIN
+            .chain_id
+            .expect("No chain ID in domain")
+            .try_into()
+            .expect("Domain's chain id is not u64");
+
+        // TODO: calculate gas needed
+        // TODO: calculate gas price
+        let tx = TransactionRequest::default()
+            .with_to(self.config.sequencer_address)
+            .with_nonce(nonce)
+            .with_chain_id(chain_id)
+            .with_value(U256::from(0))
+            .with_gas_limit(2_000_000)
+            .with_max_priority_fee_per_gas(1_000_000_000)
+            .with_max_fee_per_gas(20_000_000_000);
+
+        let _tx_hash = provider.send_transaction(tx).await?.watch().await?;
+
+        // TODO: do some error handling
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 struct Config {
     base_url: String,
     sequencer_address: Address,
+    sequencer_signer_string: String,
     // TODO: add domain (see in message/lib)
 }
 
@@ -62,10 +112,13 @@ fn mock_state() -> WalletState {
 async fn main() {
     let config_string = fs::read_to_string("config.toml").unwrap();
     let config: Config = toml::from_str(&config_string).unwrap();
+    //let signer: LocalWallet = anvil.keys()[0].clone().into();
 
     // Create a provider with the HTTP transport using the `reqwest` crate.
-    let provider =
-        ProviderBuilder::new().on_http(config.base_url.parse().unwrap());
+    let provider = ProviderBuilder::new()
+        //.with_recommended_fillers()
+        //.signer(EthereumSigner::from(signer))
+        .on_http(config.base_url.parse().unwrap());
 
     let wallet_state = mock_state();
     let lambda: LambdaMutex = Mutex::new(Lambda {
