@@ -1,2 +1,2 @@
-base_url = "www.infura.com"
+base_url = "http://127.0.0.1:8545"
 sequencer_address = "0x0000000000000000000000000000022222222222"

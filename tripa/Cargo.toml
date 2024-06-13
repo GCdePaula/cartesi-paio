@@ -17,3 +17,9 @@ alloy-core = { version = "0.7.6", features = ["sol-types", "serde"] }
 alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
 alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
 toml = "0.8.14"
+alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+reqwest = "0.12.4"
+alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+anyhow = "1.0.86"
+alloy = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }

@@ -169,7 +169,7 @@ pub struct Transaction {
     pub sender: Address,
     pub app: Address,
     pub nonce: u64,
-    pub max_gas_price: u64,
+    pub max_gas_price: u128,
 
     pub data: Vec<u8>,
 }
@@ -188,7 +188,7 @@ sol! {
     struct SigningMessage {
         address app;
         uint64 nonce;
-        uint64 max_gas_price;
+        uint128 max_gas_price;
         bytes data;
     }
 }
@@ -197,7 +197,7 @@ sol! {
 pub struct WireTransaction {
     pub app: Address,
     pub nonce: u64,
-    pub max_gas_price: u64,
+    pub max_gas_price: u128,
     pub data: Vec<u8>,
     pub signature: Signature,
 }

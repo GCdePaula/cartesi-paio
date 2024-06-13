@@ -2,6 +2,10 @@ use alloy_core::{
     primitives::{address, Address, U256},
     sol_types::Eip712Domain,
 };
+use alloy_node_bindings::AnvilInstance;
+use alloy_provider::{Provider, ProviderBuilder};
+use alloy_transport_http;
+use anyhow::Error;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -10,6 +14,7 @@ use axum::{
 };
 use message::WireTransaction;
 use message::{AppNonces, BatchBuilder, WalletState, DOMAIN};
+use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
@@ -20,17 +25,20 @@ struct Lambda {
     wallet_state: WalletState,
     batch_builder: BatchBuilder,
     config: Config,
+    provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
+    _anvil_instance: Option<AnvilInstance>,
 }
 
 #[derive(Deserialize)]
 struct Config {
     base_url: String,
     sequencer_address: Address,
+    // TODO: add domain (see in message/lib)
 }
 
 type LambdaMutex = Mutex<Lambda>;
 
-fn mock_lambda() -> Lambda {
+fn mock_state() -> WalletState {
     let john_address = address!("0000000000000000000000000000000000000099");
     let joe_address = address!("0000000000000000000000000000000000000045");
     let app1_address = address!("0000000000000000000000000000000000000003");
@@ -44,22 +52,30 @@ fn mock_lambda() -> Lambda {
     let mut wallet_state: WalletState = WalletState::new();
     wallet_state.add_app_nonce(app1_address, app1_nonces);
     wallet_state.add_app_nonce(app2_address, app2_nonces);
-    wallet_state.deposit(john_address, U256::from(123));
+    wallet_state.deposit(john_address, U256::from(2000000000));
     wallet_state.deposit(joe_address, U256::from(321));
-    wallet_state.deposit(signer_address, U256::from(30000000));
-
-    let config_string = fs::read_to_string("config.toml").unwrap();
-    let config: Config = toml::from_str(&config_string).unwrap();
-    Lambda {
-        wallet_state,
-        batch_builder: BatchBuilder::new(config.sequencer_address),
-        config,
-    }
+    wallet_state.deposit(signer_address, U256::from(2000000000));
+    wallet_state
 }
 
 #[tokio::main]
 async fn main() {
-    let lambda: LambdaMutex = Mutex::new(mock_lambda());
+    let config_string = fs::read_to_string("config.toml").unwrap();
+    let config: Config = toml::from_str(&config_string).unwrap();
+
+    // Create a provider with the HTTP transport using the `reqwest` crate.
+    let provider =
+        ProviderBuilder::new().on_http(config.base_url.parse().unwrap());
+
+    let wallet_state = mock_state();
+    let lambda: LambdaMutex = Mutex::new(Lambda {
+        wallet_state,
+        batch_builder: BatchBuilder::new(config.sequencer_address),
+        config,
+        provider: Box::new(provider),
+        _anvil_instance: None,
+    });
+
     let shared_state = Arc::new(lambda);
 
     // initialize tracing
@@ -127,61 +143,62 @@ struct Nonce {
 
 async fn gas_price(
     State(state): State<Arc<LambdaMutex>>,
-) -> (StatusCode, Json<GasPrice>) {
-    // TODO: add logic to get gas price
-    let gas: GasPrice = get_gas_price(state).await;
-    (StatusCode::OK, Json(gas))
+) -> Result<(StatusCode, Json<GasPrice>), (StatusCode, String)> {
+    match get_gas_price(state).await {
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+        Ok(gas) => Ok((StatusCode::OK, Json(gas))),
+    }
+}
+
+async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<GasPrice, Error> {
+    Ok(state.lock().await.provider.get_gas_price().await?)
 }
 
 async fn get_domain(
     State(_state): State<Arc<LambdaMutex>>,
 ) -> (StatusCode, Json<Eip712Domain>) {
-    // TODO: add logic to get gas price
     (StatusCode::OK, Json(DOMAIN))
 }
 
-async fn get_gas_price(_state: Arc<LambdaMutex>) -> GasPrice {
-    22
-}
-
 // the output of `gas` handler
-type GasPrice = u64;
+type GasPrice = u128;
 
 async fn submit_transaction(
     State(state): State<Arc<LambdaMutex>>,
     Json(payload): Json<WireTransaction>,
 ) -> Result<(StatusCode, ()), (StatusCode, String)> {
     let signed_transaction = &payload.to_signed_transaction();
-    if let Err(_) = signed_transaction.recover(&DOMAIN) {
-        return Err((StatusCode::UNAUTHORIZED, "Signature error".to_string()));
+    if let Err(e) = signed_transaction.recover(&DOMAIN) {
+        return Err((StatusCode::UNAUTHORIZED, e.to_string()));
     };
-
-    if payload.max_gas_price < get_gas_price(state.clone()).await {
+    let gas_price = match get_gas_price(state.clone()).await {
+        Err(e) => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+        Ok(g) => g,
+    };
+    if payload.max_gas_price < gas_price {
         return Err((
             StatusCode::PAYMENT_REQUIRED,
-            "Max gas too small".to_string(),
+            format!(
+                "Max gas too small, offered {:}, needed {:}",
+                payload.max_gas_price, gas_price
+            )
+            .to_string(),
         ));
     }
-
     let mut state_lock = state.lock().await;
     let sequencer_address = state_lock.config.sequencer_address.clone();
     let transaction_opt = state_lock
         .wallet_state
         .verify_single(sequencer_address, &payload);
-
-    state
-        .lock()
-        .await
-        .batch_builder
-        .add(signed_transaction.clone());
-
+    state_lock.batch_builder.add(signed_transaction.clone());
     if let None = transaction_opt {
         return Err((
             StatusCode::NOT_ACCEPTABLE,
             "Transaction not valid".to_string(),
         ));
     };
-
     Ok((StatusCode::CREATED, ()))
 }
 
@@ -192,7 +209,9 @@ mod tests {
     use alloy_signer_wallet::LocalWallet;
     use axum::{
         body::Body,
+        body::Bytes,
         http::{self, Request, StatusCode},
+        response::Response,
     };
     use http_body_util::BodyExt; // for `collect`
     use message::{SignedTransaction, SigningMessage, DOMAIN};
@@ -200,7 +219,28 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
-    fn produce_tx(nonce: u64, gas: u64) -> WireTransaction {
+    fn mock_lambda() -> Lambda {
+        let config_string = fs::read_to_string("config.toml").unwrap();
+        let config: Config = toml::from_str(&config_string).unwrap();
+
+        let wallet_state = mock_state();
+
+        let anvil = Anvil::new().try_spawn().expect("Anvil not working");
+        let rpc_url: String =
+            anvil.endpoint().parse().expect("Could not get Anvil's url");
+        Lambda {
+            wallet_state,
+            batch_builder: BatchBuilder::new(config.sequencer_address),
+            config,
+            provider: Box::new(
+                ProviderBuilder::new()
+                    .on_http(rpc_url.clone().parse().unwrap()),
+            ),
+            _anvil_instance: Some(anvil),
+        }
+    }
+
+    fn produce_tx(nonce: u64, gas: u128) -> WireTransaction {
         let json = format!(
             r#"
         {{
@@ -235,35 +275,49 @@ mod tests {
             .with_state(shared_state)
     }
 
+    fn make_request(is_post: bool, uri: &str, body: Body) -> Request<Body> {
+        Request::builder()
+            .uri(uri)
+            .method(if is_post {
+                http::Method::POST
+            } else {
+                http::Method::GET
+            })
+            .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+            .body(body)
+            .unwrap()
+    }
+
+    async fn extract_parts(response: Response<Body>) -> (StatusCode, Bytes) {
+        let (status, body) = (
+            response.status(),
+            response.into_body().collect().await.unwrap().to_bytes(),
+        );
+        println!("status: {:}, body: {:?}", status, &body);
+        (status, body)
+    }
+
     #[tokio::test]
     async fn gas() {
         let app = app();
         let response = app
-            .oneshot(
-                Request::builder().uri("/gas").body(Body::empty()).unwrap(),
-            )
+            .oneshot(make_request(false, "/gas", Body::empty()))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&body[..], b"22");
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[..], b"2000000000");
     }
 
     #[tokio::test]
     async fn domain() {
         let app = app();
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/domain")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(make_request(false, "/domain", Body::empty()))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0x539\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
     }
 
@@ -272,76 +326,52 @@ mod tests {
         let app = app();
         let transaction = produce_tx(21, 21);
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/transaction")
-                    .method(http::Method::POST)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(transaction)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(make_request(
+                true,
+                "/transaction",
+                Body::from(serde_json::to_vec(&json!(transaction)).unwrap()),
+            ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::PAYMENT_REQUIRED);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
-        assert_eq!(&body[..], b"Max gas too small");
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::PAYMENT_REQUIRED);
+        assert_eq!(
+            &body[..],
+            b"Max gas too small, offered 21, needed 2000000000"
+        );
     }
 
     #[tokio::test]
     async fn transaction_low_balance() {
         let app = app();
-        let transaction = produce_tx(21, 210);
+        let transaction = produce_tx(21, 2000000000);
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/transaction")
-                    .method(http::Method::POST)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(transaction)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(make_request(
+                true,
+                "/transaction",
+                Body::from(serde_json::to_vec(&json!(transaction)).unwrap()),
+            ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::NOT_ACCEPTABLE);
         assert_eq!(&body[..], b"Transaction not valid");
     }
 
     #[tokio::test]
     async fn transaction_success() {
         let app = app();
-        let transaction = produce_tx(0, 22);
+        let transaction = produce_tx(0, 2000000000);
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/transaction")
-                    .method(http::Method::POST)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(transaction)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(make_request(
+                true,
+                "/transaction",
+                Body::from(serde_json::to_vec(&json!(transaction)).unwrap()),
+            ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::CREATED);
         assert_eq!(&body[..], b"");
     }
 
@@ -350,55 +380,34 @@ mod tests {
         let app = app();
         let response = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/batch")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(make_request(false, "/batch", Body::empty()))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[]}");
-        let transaction = produce_tx(0, 22);
+        let transaction = produce_tx(0, 2000000000);
         let response = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/transaction")
-                    .method(http::Method::POST)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(transaction)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(make_request(
+                true,
+                "/transaction",
+                Body::from(serde_json::to_vec(&json!(transaction)).unwrap()),
+            ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::CREATED);
         assert_eq!(&body[..], b"");
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/batch")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(make_request(false, "/batch", Body::empty()))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", &body);
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::OK);
         // here we ommit the signature and only look at the first bytes,
         // because the signature changes every time.
-        assert_eq!(&body[0..230], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\":22,\"data\":\"0x48656c6c6f2c20576f726c6421\"},\"signature\":{\"r\":\"");
+        assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
     }
 
     #[tokio::test]
@@ -409,25 +418,16 @@ mod tests {
             user: address!("0000000000000000000000000000000000000020"),
         };
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/nonce")
-                    .method(http::Method::GET)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(nonce_id)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(make_request(
+                false,
+                "/nonce",
+                Body::from(serde_json::to_vec(&json!(nonce_id)).unwrap()),
+            ))
             .await
             .unwrap();
         println!("{:?}", response);
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        println!("{:?}", std::str::from_utf8(&body[..]).unwrap());
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"{\"nonce\":0}");
     }
 
@@ -440,23 +440,15 @@ mod tests {
         };
         println!("{:?}", nonce_id);
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/nonce")
-                    .method(http::Method::GET)
-                    .header(
-                        http::header::CONTENT_TYPE,
-                        mime::APPLICATION_JSON.as_ref(),
-                    )
-                    .body(Body::from(
-                        serde_json::to_vec(&json!(nonce_id)).unwrap(),
-                    ))
-                    .unwrap(),
-            )
+            .oneshot(make_request(
+                false,
+                "/nonce",
+                Body::from(serde_json::to_vec(&json!(nonce_id)).unwrap()),
+            ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let (status, body) = extract_parts(response).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"{\"nonce\":3}");
     }
 }
