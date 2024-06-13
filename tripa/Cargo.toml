@@ -13,7 +13,7 @@ tokio = { version = "1.38.0", features = ["rt-multi-thread", "sync"] }
 tower = "0.4.13"
 tracing-subscriber = "0.3.18"
 message = { path = "../message" }
-alloy-core = { version = "0.7.6", features = ["sol-types", "serde"] }
+alloy-core = { version = "0.7.6", features = ["sol-types", "serde", "json"] }
 alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
 alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
 toml = "0.8.14"
@@ -27,4 +27,4 @@ alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0"
 alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
 alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
 alloy-json-abi = "0.7.6"
-
+alloy-contract = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }

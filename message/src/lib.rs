@@ -193,7 +193,7 @@ sol! {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct WireTransaction {
     pub app: Address,
     pub nonce: u64,
@@ -240,7 +240,7 @@ impl WireTransaction {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct Batch {
     pub sequencer_payment_address: Address,
     pub txs: Vec<WireTransaction>,

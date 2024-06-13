@@ -1,14 +1,12 @@
+#![feature(async_closure)]
 use alloy_core::{
-    primitives::{address, Address, U256},
+    primitives::{address, Address, Bytes, U256},
+    sol,
     sol_types::Eip712Domain,
 };
-//use alloy_jso
 use alloy_network::EthereumSigner;
-use alloy_network::TransactionBuilder;
 use alloy_node_bindings::AnvilInstance;
 use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rpc_types::TransactionRequest;
-use alloy_transport_http;
 use anyhow::Error;
 use axum::{
     extract::State,
@@ -23,7 +21,16 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::task;
 use toml;
+
+// Codegen from ABI file to interact with the contract.
+sol!(
+    #[allow(missing_docs)]
+    #[sol(rpc)]
+    INPUT_BOX,
+    "./input-box-abi.json"
+);
 
 struct Lambda {
     wallet_state: WalletState,
@@ -50,28 +57,20 @@ impl Lambda {
             .signer(EthereumSigner::from(signer))
             .on_http(self.config.base_url.parse().unwrap());
 
-        let nonce = provider
-            .get_transaction_count(self.config.sequencer_address)
-            .await?;
-
-        let chain_id: u64 = DOMAIN
-            .chain_id
-            .expect("No chain ID in domain")
-            .try_into()
-            .expect("Domain's chain id is not u64");
+        let input_contract =
+            INPUT_BOX::new(self.config.input_box_address, provider);
 
         // TODO: calculate gas needed
         // TODO: calculate gas price
-        let tx = TransactionRequest::default()
-            .with_to(self.config.sequencer_address)
-            .with_nonce(nonce)
-            .with_chain_id(chain_id)
-            .with_value(U256::from(0))
-            .with_gas_limit(2_000_000)
-            .with_max_priority_fee_per_gas(1_000_000_000)
-            .with_max_fee_per_gas(20_000_000_000);
-
-        let _tx_hash = provider.send_transaction(tx).await?.watch().await?;
+        let _ = input_contract
+            .addInput(
+                self.config.input_box_address,
+                Bytes::copy_from_slice(&batch.clone().to_bytes()),
+            )
+            .send()
+            .await?
+            .watch()
+            .await?;
 
         // TODO: do some error handling
         Ok(())
@@ -83,6 +82,7 @@ struct Config {
     base_url: String,
     sequencer_address: Address,
     sequencer_signer_string: String,
+    input_box_address: Address,
     // TODO: add domain (see in message/lib)
 }
 
@@ -130,6 +130,16 @@ async fn main() {
     });
 
     let shared_state = Arc::new(lambda);
+
+    let state_copy_for_batches = shared_state.clone();
+
+    task::spawn(async move {
+        loop {
+            let state = state_copy_for_batches.lock().await;
+            let _ = state.build_batch();
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        }
+    });
 
     // initialize tracing
     tracing_subscriber::fmt::init();
@@ -258,6 +268,7 @@ async fn submit_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_node_bindings::Anvil;
     use alloy_signer::SignerSync;
     use alloy_signer_wallet::LocalWallet;
     use axum::{
@@ -316,16 +327,20 @@ mod tests {
 
     /// Having a function that produces our app makes it easy to call it from tests
     /// without having to create an HTTP server.
-    fn app() -> Router {
+    fn app() -> (Router, Arc<Mutex<Lambda>>) {
         let lambda = Mutex::new(mock_lambda());
         let shared_state = Arc::new(lambda);
-        Router::new()
-            .route("/nonce", get(get_nonce))
-            .route("/gas", get(gas_price))
-            .route("/domain", get(get_domain))
-            .route("/transaction", post(submit_transaction))
-            .route("/batch", get(get_batch))
-            .with_state(shared_state)
+        let returned_state = shared_state.clone();
+        (
+            Router::new()
+                .route("/nonce", get(get_nonce))
+                .route("/gas", get(gas_price))
+                .route("/domain", get(get_domain))
+                .route("/transaction", post(submit_transaction))
+                .route("/batch", get(get_batch))
+                .with_state(shared_state),
+            returned_state,
+        )
     }
 
     fn make_request(is_post: bool, uri: &str, body: Body) -> Request<Body> {
@@ -352,7 +367,7 @@ mod tests {
 
     #[tokio::test]
     async fn gas() {
-        let app = app();
+        let (app, _) = app();
         let response = app
             .oneshot(make_request(false, "/gas", Body::empty()))
             .await
@@ -364,7 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn domain() {
-        let app = app();
+        let (app, _) = app();
         let response = app
             .oneshot(make_request(false, "/domain", Body::empty()))
             .await
@@ -376,7 +391,7 @@ mod tests {
 
     #[tokio::test]
     async fn transaction_low_gas() {
-        let app = app();
+        let (app, _) = app();
         let transaction = produce_tx(21, 21);
         let response = app
             .oneshot(make_request(
@@ -396,7 +411,7 @@ mod tests {
 
     #[tokio::test]
     async fn transaction_low_balance() {
-        let app = app();
+        let (app, _) = app();
         let transaction = produce_tx(21, 2000000000);
         let response = app
             .oneshot(make_request(
@@ -413,7 +428,7 @@ mod tests {
 
     #[tokio::test]
     async fn transaction_success() {
-        let app = app();
+        let (app, _) = app();
         let transaction = produce_tx(0, 2000000000);
         let response = app
             .oneshot(make_request(
@@ -430,7 +445,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_filling() {
-        let app = app();
+        let (app, state) = app();
         let response = app
             .clone()
             .oneshot(make_request(false, "/batch", Body::empty()))
@@ -461,11 +476,12 @@ mod tests {
         // here we ommit the signature and only look at the first bytes,
         // because the signature changes every time.
         assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
+        let _ = state.lock().await.build_batch();
     }
 
     #[tokio::test]
     async fn nonce_miss() {
-        let app = app();
+        let (app, _) = app();
         let nonce_id = NonceIdentifier {
             application: address!("0000000000000000000000000000000000000010"),
             user: address!("0000000000000000000000000000000000000020"),
@@ -486,7 +502,7 @@ mod tests {
 
     #[tokio::test]
     async fn nonce() {
-        let app = app();
+        let (app, _) = app();
         let nonce_id = NonceIdentifier {
             user: address!("0000000000000000000000000000000000000099"),
             application: address!("0000000000000000000000000000000000000003"),
