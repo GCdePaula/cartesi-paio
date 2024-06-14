@@ -13,18 +13,19 @@ tokio = { version = "1.38.0", features = ["rt-multi-thread", "sync"] }
 tower = "0.4.13"
 tracing-subscriber = "0.3.18"
 message = { path = "../message" }
-alloy-core = { version = "0.7.6", features = ["sol-types", "serde", "json"] }
-alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
-alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"] }
 toml = "0.8.14"
-alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
 reqwest = "0.12.4"
-alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
 anyhow = "1.0.86"
-alloy = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
-alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
-alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
-alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
 alloy-json-abi = "0.7.6"
-alloy-contract = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0" }
+alloy-contract = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+#alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-core = { version = "0.7.6", features = ["sol-types", "serde", "json"] }
+alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }
+alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }

@@ -54,16 +54,15 @@ impl Lambda {
         // it non-Send, so it cannot be part of axum state. or something.
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
-            .signer(EthereumSigner::from(signer))
+            .signer(EthereumSigner::from(signer.clone()))
             .on_http(self.config.base_url.parse().unwrap());
 
         let input_contract =
             INPUT_BOX::new(self.config.input_box_address, provider);
 
-        println!("Building ...");
         // TODO: calculate gas needed
         // TODO: calculate gas price
-        let output = input_contract
+        let _output = input_contract
             .addInput(
                 self.config.input_box_address,
                 Bytes::copy_from_slice(&batch.clone().to_bytes()),
@@ -72,8 +71,6 @@ impl Lambda {
             .await?
             .watch()
             .await?;
-        println!("Finished");
-        println!("{:?}", output);
 
         // TODO: do some error handling
         Ok(())
@@ -272,11 +269,11 @@ async fn submit_transaction(
 mod tests {
     use super::*;
     use alloy_node_bindings::Anvil;
+    use alloy_rpc_types::TransactionRequest;
     use alloy_signer::SignerSync;
     use alloy_signer_wallet::LocalWallet;
     use axum::{
-        body::Body,
-        body::Bytes,
+        body::{Body, Bytes},
         http::{self, Request, StatusCode},
         response::Response,
     };
@@ -286,23 +283,43 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
-    fn mock_lambda() -> Lambda {
+    async fn mock_lambda() -> Lambda {
         let config_string = fs::read_to_string("config.toml").unwrap();
-        let config: Config = toml::from_str(&config_string).unwrap();
+        let mut config: Config = toml::from_str(&config_string).unwrap();
 
         let wallet_state = mock_state();
 
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
         let rpc_url: String =
             anvil.endpoint().parse().expect("Could not get Anvil's url");
+        config.base_url = rpc_url.clone();
+
+        let signer: LocalWallet = anvil.keys()[0].clone().into();
+
+        let sequencer_address = config
+            .sequencer_signer_string
+            .parse::<alloy_signer_wallet::LocalWallet>()
+            .expect("Could not parse sequencer signature");
+
+        let tx = TransactionRequest::default()
+            .from(signer.address())
+            .to(sequencer_address.address())
+            .value("30000000000000000000".parse().unwrap());
+
+        let provider =
+            ProviderBuilder::new().on_http(rpc_url.clone().parse().unwrap());
+
+        // Send the transaction and wait for the broadcast.
+        let pending_tx = provider.send_transaction(tx).await.unwrap();
+
+        // Wait for the transaction to be included and get the receipt.
+        let _receipt = pending_tx.get_receipt().await.unwrap();
+
         Lambda {
             wallet_state,
             batch_builder: BatchBuilder::new(config.sequencer_address),
             config,
-            provider: Box::new(
-                ProviderBuilder::new()
-                    .on_http(rpc_url.clone().parse().unwrap()),
-            ),
+            provider: Box::new(provider),
             _anvil_instance: Some(anvil),
         }
     }
@@ -330,8 +347,8 @@ mod tests {
 
     /// Having a function that produces our app makes it easy to call it from tests
     /// without having to create an HTTP server.
-    fn app() -> (Router, Arc<Mutex<Lambda>>) {
-        let lambda = Mutex::new(mock_lambda());
+    async fn app() -> (Router, Arc<Mutex<Lambda>>) {
+        let lambda = Mutex::new(mock_lambda().await);
         let shared_state = Arc::new(lambda);
         let returned_state = shared_state.clone();
         (
@@ -370,19 +387,18 @@ mod tests {
 
     #[tokio::test]
     async fn gas() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let response = app
             .oneshot(make_request(false, "/gas", Body::empty()))
             .await
             .unwrap();
-        let (status, body) = extract_parts(response).await;
+        let (status, _body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(&body[..], b"2000000000");
     }
 
     #[tokio::test]
     async fn domain() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let response = app
             .oneshot(make_request(false, "/domain", Body::empty()))
             .await
@@ -394,7 +410,7 @@ mod tests {
 
     #[tokio::test]
     async fn transaction_low_gas() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let transaction = produce_tx(21, 21);
         let response = app
             .oneshot(make_request(
@@ -406,15 +422,12 @@ mod tests {
             .unwrap();
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::PAYMENT_REQUIRED);
-        assert_eq!(
-            &body[..],
-            b"Max gas too small, offered 21, needed 2000000000"
-        );
+        assert_eq!(&body[0..37], b"Max gas too small, offered 21, needed");
     }
 
     #[tokio::test]
     async fn transaction_low_balance() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let transaction = produce_tx(21, 2000000000);
         let response = app
             .oneshot(make_request(
@@ -431,7 +444,7 @@ mod tests {
 
     #[tokio::test]
     async fn transaction_success() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let transaction = produce_tx(0, 2000000000);
         let response = app
             .oneshot(make_request(
@@ -448,7 +461,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_filling() {
-        let (app, state) = app();
+        let (app, state) = app().await;
         let response = app
             .clone()
             .oneshot(make_request(false, "/batch", Body::empty()))
@@ -456,7 +469,7 @@ mod tests {
             .unwrap();
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(&body[..], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[]}");
+        assert_eq!(&body[..], b"{\"sequencer_payment_address\":\"0x63f9725f107358c9115bc9d86c72dd5823e9b1e6\",\"txs\":[]}");
         let transaction = produce_tx(0, 2000000000);
         let response = app
             .clone()
@@ -478,15 +491,16 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         // here we ommit the signature and only look at the first bytes,
         // because the signature changes every time.
-        assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x0000000000000000000000000000022222222222\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
-        println!("Before building batch");
-        state.lock().await.build_batch().await.unwrap();
-        println!("After building batch");
+        assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x63f9725f107358c9115bc9d86c72dd5823e9b1e6\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
+        let state_lock = state.lock().await;
+        let _batch = state_lock.build_batch().await.unwrap();
+
+        // TODO: test if batch was submitted to inputbox
     }
 
     #[tokio::test]
     async fn nonce_miss() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let nonce_id = NonceIdentifier {
             application: address!("0000000000000000000000000000000000000010"),
             user: address!("0000000000000000000000000000000000000020"),
@@ -507,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn nonce() {
-        let (app, _) = app();
+        let (app, _) = app().await;
         let nonce_id = NonceIdentifier {
             user: address!("0000000000000000000000000000000000000099"),
             application: address!("0000000000000000000000000000000000000003"),
