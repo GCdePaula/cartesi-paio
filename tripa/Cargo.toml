@@ -29,3 +29,4 @@ alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"
 alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
 alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
 alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }
+futures-util = "0.3.30"

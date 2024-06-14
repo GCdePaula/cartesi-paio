@@ -3105,6 +3105,7 @@ dependencies = [
  "alloy-transport-http",
  "anyhow",
  "axum",
+ "futures-util",
  "http-body-util",
  "message",
  "mime",

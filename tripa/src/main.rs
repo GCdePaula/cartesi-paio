@@ -24,12 +24,88 @@ use tokio::sync::Mutex;
 use tokio::task;
 use toml;
 
+//use futures_util::StreamExt;
+
+// sol!(
+//     #[allow(missing_docs)]
+//     #[sol(bytecode = "0x1234")]
+//     #[sol(rpc)]
+//     #[derive(Debug)]
+//     INPUT_BOX,
+//     "./input-box-abi.json"
+// );
+
 // Codegen from ABI file to interact with the contract.
 sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    INPUT_BOX,
-    "./input-box-abi.json"
+  #[allow(missing_docs)]
+  #[sol(bytecode = "6080604052348015600e575f80fd5b506107918061001c5f395ff3fe608060405234801561000f575f80fd5b506004361061004a575f3560e01c80631789cd631461004e57806361a93c871461007e578063677087c9146100ae578063837298e9146100de575b5f80fd5b610068600480360381019061006391906103ae565b6100fa565b6040516100759190610423565b60405180910390f35b6100986004803603810190610093919061043c565b610238565b6040516100a5919061047f565b60405180910390f35b6100c860048036038101906100c391906104c2565b610280565b6040516100d59190610423565b60405180910390f35b6100f860048036038101906100f39190610500565b6102e0565b005b5f805f808673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f2090505f818054905090505f468733434244878c8c60405160240161016499989796959493929190610639565b60405160208183030381529060405263837298e960e01b6020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff838183161783525050505090505f818051906020012090508381908060018154018082558091505060019003905f5260205f20015f9091909190915055828873ffffffffffffffffffffffffffffffffffffffff167fc05d337121a6e8605c6ec0b72aa29c4210ffe6e5b9cefdd6a7058188a8f66f9884604051610222919061070e565b60405180910390a3809450505050509392505050565b5f805f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20805490509050919050565b5f805f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f2082815481106102cf576102ce61072e565b5b905f5260205f200154905092915050565b505050505050505050565b5f80fd5b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61031c826102f3565b9050919050565b61032c81610312565b8114610336575f80fd5b50565b5f8135905061034781610323565b92915050565b5f80fd5b5f80fd5b5f80fd5b5f8083601f84011261036e5761036d61034d565b5b8235905067ffffffffffffffff81111561038b5761038a610351565b5b6020830191508360018202830111156103a7576103a6610355565b5b9250929050565b5f805f604084860312156103c5576103c46102eb565b5b5f6103d286828701610339565b935050602084013567ffffffffffffffff8111156103f3576103f26102ef565b5b6103ff86828701610359565b92509250509250925092565b5f819050919050565b61041d8161040b565b82525050565b5f6020820190506104365f830184610414565b92915050565b5f60208284031215610451576104506102eb565b5b5f61045e84828501610339565b91505092915050565b5f819050919050565b61047981610467565b82525050565b5f6020820190506104925f830184610470565b92915050565b6104a181610467565b81146104ab575f80fd5b50565b5f813590506104bc81610498565b92915050565b5f80604083850312156104d8576104d76102eb565b5b5f6104e585828601610339565b92505060206104f6858286016104ae565b9150509250929050565b5f805f805f805f805f6101008a8c03121561051e5761051d6102eb565b5b5f61052b8c828d016104ae565b995050602061053c8c828d01610339565b985050604061054d8c828d01610339565b975050606061055e8c828d016104ae565b965050608061056f8c828d016104ae565b95505060a06105808c828d016104ae565b94505060c06105918c828d016104ae565b93505060e08a013567ffffffffffffffff8111156105b2576105b16102ef565b5b6105be8c828d01610359565b92509250509295985092959850929598565b6105d981610312565b82525050565b5f82825260208201905092915050565b828183375f83830152505050565b5f601f19601f8301169050919050565b5f61061883856105df565b93506106258385846105ef565b61062e836105fd565b840190509392505050565b5f6101008201905061064d5f83018c610470565b61065a602083018b6105d0565b610667604083018a6105d0565b6106746060830189610470565b6106816080830188610470565b61068e60a0830187610470565b61069b60c0830186610470565b81810360e08301526106ae81848661060d565b90509a9950505050505050505050565b5f81519050919050565b8281835e5f83830152505050565b5f6106e0826106be565b6106ea81856105df565b93506106fa8185602086016106c8565b610703816105fd565b840191505092915050565b5f6020820190508181035f83015261072681846106d6565b905092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52603260045260245ffdfea2646970667358221220170ea2b6b0dca75d1f0ed969e8703922be925699df71cc2b5f493dbf5af2b09964736f6c634300081a0033")]
+  #[sol(rpc)]
+  #[derive(Debug)]
+  contract InputBox {
+
+    event InputAdded(
+      address indexed appContract,
+      uint256 indexed index,
+      bytes input
+    );
+    /// @notice Mapping of application contract addresses to arrays of input hashes.
+    mapping(address => bytes32[]) private _inputBoxes;
+
+    constructor() {}
+
+    function evmAdvance(
+      uint256 chainId,
+      address appContract,
+      address msgSender,
+      uint256 blockNumber,
+      uint256 blockTimestamp,
+      uint256 prevRandao,
+      uint256 index,
+      bytes calldata payload
+    ) external {}
+
+    function addInput(
+      address appContract,
+      bytes calldata payload
+    ) external returns (bytes32) {
+      bytes32[] storage inputBox = _inputBoxes[appContract];
+      uint256 index = inputBox.length;
+      bytes memory input = abi.encodeCall(
+        InputBox.evmAdvance,
+        (
+          block.chainid,
+          appContract,
+          msg.sender,
+          block.number,
+          block.timestamp,
+          block.prevrandao,
+          index,
+          payload
+        )
+      );
+
+      bytes32 inputHash = keccak256(input);
+
+      inputBox.push(inputHash);
+
+      emit InputAdded(appContract, index, input);
+
+      return inputHash;
+    }
+
+    function getNumberOfInputs(
+      address appContract
+    ) external view returns (uint256) {
+      return _inputBoxes[appContract].length;
+    }
+
+    function getInputHash(
+      address appContract,
+      uint256 index
+    ) external view returns (bytes32) {
+      return _inputBoxes[appContract][index];
+    }
+  }
 );
 
 struct Lambda {
@@ -57,20 +133,28 @@ impl Lambda {
             .signer(EthereumSigner::from(signer.clone()))
             .on_http(self.config.base_url.parse().unwrap());
 
+        // let input_contract =
+        //     INPUT_BOX::new(self.config.input_box_address, provider.clone());
         let input_contract =
-            INPUT_BOX::new(self.config.input_box_address, provider);
+            InputBox::new(self.config.input_box_address, provider.clone());
 
         // TODO: calculate gas needed
         // TODO: calculate gas price
-        let _output = input_contract
-            .addInput(
-                self.config.input_box_address,
-                Bytes::copy_from_slice(&batch.clone().to_bytes()),
-            )
-            .send()
-            .await?
-            .watch()
-            .await?;
+        let tx = input_contract.addInput(
+            self.config.input_box_address,
+            Bytes::copy_from_slice(&batch.clone().to_bytes()),
+        );
+
+        let event = input_contract.InputAdded_filter();
+
+        let pending_tx = tx.send().await?;
+        let _receipt = pending_tx.get_receipt().await?;
+        let log = event.query().await.unwrap();
+
+        //let poller = event.watch().await.unwrap();
+        //let mut stream = poller.into_stream();
+        //let log = stream.next().await.unwrap();
+        println!("log {:?}", log);
 
         // TODO: do some error handling
         Ok(())
@@ -112,13 +196,22 @@ fn mock_state() -> WalletState {
 async fn main() {
     let config_string = fs::read_to_string("config.toml").unwrap();
     let config: Config = toml::from_str(&config_string).unwrap();
-    //let signer: LocalWallet = anvil.keys()[0].clone().into();
 
     // Create a provider with the HTTP transport using the `reqwest` crate.
-    let provider = ProviderBuilder::new()
-        //.with_recommended_fillers()
-        //.signer(EthereumSigner::from(signer))
-        .on_http(config.base_url.parse().unwrap());
+    let provider =
+        // if USE_ANVIL {
+        // let anvil = Anvil::new().try_spawn().expect("Anvil not working");
+        // let signer: LocalWallet = anvil.keys()[0].clone().into();
+        // let rpc_url: String =
+        //     anvil.endpoint().parse().expect("Could not get Anvil's url");
+        // config.base_url = rpc_url.clone();
+        // ProviderBuilder::new()
+        //     .with_recommended_fillers()
+        //     .signer(EthereumSigner::from(signer))
+        //     .on_http(config.base_url.parse().unwrap())
+        // } else {
+        ProviderBuilder::new().on_http(config.base_url.parse().unwrap());
+    //};
 
     let wallet_state = mock_state();
     let lambda: LambdaMutex = Mutex::new(Lambda {
@@ -276,12 +369,16 @@ mod tests {
         body::{Body, Bytes},
         http::{self, Request, StatusCode},
         response::Response,
+        routing::RouterIntoService,
     };
     use http_body_util::BodyExt; // for `collect`
     use message::{SignedTransaction, SigningMessage, DOMAIN};
     use mime;
     use serde_json::json;
+    use tower::Service;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
+
+    const USE_ANVIL: bool = true;
 
     async fn mock_lambda() -> Lambda {
         let config_string = fs::read_to_string("config.toml").unwrap();
@@ -290,9 +387,11 @@ mod tests {
         let wallet_state = mock_state();
 
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
-        let rpc_url: String =
-            anvil.endpoint().parse().expect("Could not get Anvil's url");
-        config.base_url = rpc_url.clone();
+        if USE_ANVIL {
+            let rpc_url: String =
+                anvil.endpoint().parse().expect("Could not get Anvil's url");
+            config.base_url = rpc_url.clone();
+        }
 
         let signer: LocalWallet = anvil.keys()[0].clone().into();
 
@@ -301,19 +400,40 @@ mod tests {
             .parse::<alloy_signer_wallet::LocalWallet>()
             .expect("Could not parse sequencer signature");
 
+        let provider = ProviderBuilder::new()
+            .with_recommended_fillers()
+            .signer(EthereumSigner::from(signer.clone()))
+            .on_http(config.base_url.clone().parse().unwrap());
+
+        let input_contract = InputBox::deploy(provider.clone());
+
+        config.input_box_address = *input_contract.await.unwrap().address();
+        // let receipt = provider.send_transaction(tx.clone()).await.unwrap();
+
+        // println!("receipt {:?}", receipt);
+
         let tx = TransactionRequest::default()
             .from(signer.address())
             .to(sequencer_address.address())
             .value("30000000000000000000".parse().unwrap());
 
-        let provider =
-            ProviderBuilder::new().on_http(rpc_url.clone().parse().unwrap());
+        println!("tx {:?}", tx);
 
         // Send the transaction and wait for the broadcast.
         let pending_tx = provider.send_transaction(tx).await.unwrap();
 
         // Wait for the transaction to be included and get the receipt.
         let _receipt = pending_tx.get_receipt().await.unwrap();
+
+        let balance = provider
+            .get_balance(sequencer_address.address())
+            .await
+            .unwrap();
+        println!(
+            "mock_lambda: balance = {:?}, address = {:?}",
+            balance,
+            sequencer_address.address()
+        );
 
         Lambda {
             wallet_state,
@@ -348,8 +468,8 @@ mod tests {
     /// Having a function that produces our app makes it easy to call it from tests
     /// without having to create an HTTP server.
     async fn app() -> (Router, Arc<Mutex<Lambda>>) {
-        let lambda = Mutex::new(mock_lambda().await);
-        let shared_state = Arc::new(lambda);
+        let lambda = mock_lambda().await;
+        let shared_state = Arc::new(Mutex::new(lambda));
         let returned_state = shared_state.clone();
         (
             Router::new()
@@ -388,8 +508,11 @@ mod tests {
     #[tokio::test]
     async fn gas() {
         let (app, _) = app().await;
-        let response = app
-            .oneshot(make_request(false, "/gas", Body::empty()))
+        let mut service: RouterIntoService<Body> = app.into_service();
+        let response = ServiceExt::<Request<Body>>::ready(&mut service)
+            .await
+            .unwrap()
+            .call(make_request(false, "/gas", Body::empty()))
             .await
             .unwrap();
         let (status, _body) = extract_parts(response).await;
@@ -462,18 +585,21 @@ mod tests {
     #[tokio::test]
     async fn batch_filling() {
         let (app, state) = app().await;
-        let response = app
-            .clone()
-            .oneshot(make_request(false, "/batch", Body::empty()))
+        let mut service: RouterIntoService<Body> = app.into_service();
+        let response = ServiceExt::<Request<Body>>::ready(&mut service)
+            .await
+            .unwrap()
+            .call(make_request(false, "/batch", Body::empty()))
             .await
             .unwrap();
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"{\"sequencer_payment_address\":\"0x63f9725f107358c9115bc9d86c72dd5823e9b1e6\",\"txs\":[]}");
         let transaction = produce_tx(0, 2000000000);
-        let response = app
-            .clone()
-            .oneshot(make_request(
+        let response = ServiceExt::<Request<Body>>::ready(&mut service)
+            .await
+            .unwrap()
+            .call(make_request(
                 true,
                 "/transaction",
                 Body::from(serde_json::to_vec(&json!(transaction)).unwrap()),
@@ -483,8 +609,10 @@ mod tests {
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(&body[..], b"");
-        let response = app
-            .oneshot(make_request(false, "/batch", Body::empty()))
+        let response = ServiceExt::<Request<Body>>::ready(&mut service)
+            .await
+            .unwrap()
+            .call(make_request(false, "/batch", Body::empty()))
             .await
             .unwrap();
         let (status, body) = extract_parts(response).await;
@@ -494,6 +622,22 @@ mod tests {
         assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x63f9725f107358c9115bc9d86c72dd5823e9b1e6\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
         let state_lock = state.lock().await;
         let _batch = state_lock.build_batch().await.unwrap();
+
+        let provider = ProviderBuilder::new()
+            .on_http(state_lock.config.base_url.parse().unwrap());
+
+        let input_contract = InputBox::new(
+            state_lock.config.input_box_address,
+            provider.clone(),
+        );
+
+        let hash = input_contract
+            .getInputHash(state_lock.config.input_box_address, U256::from(0))
+            .call()
+            .await
+            .unwrap();
+
+        println!("hash = {:}", hash._0);
 
         // TODO: test if batch was submitted to inputbox
     }
