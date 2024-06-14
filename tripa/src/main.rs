@@ -378,7 +378,8 @@ mod tests {
     use tower::Service;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
-    const USE_ANVIL: bool = true;
+    // TODO: fix error when not using local anvil
+    const USE_LOCAL_ANVIL: bool = true;
 
     async fn mock_lambda() -> Lambda {
         let config_string = fs::read_to_string("config.toml").unwrap();
@@ -387,7 +388,7 @@ mod tests {
         let wallet_state = mock_state();
 
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
-        if USE_ANVIL {
+        if USE_LOCAL_ANVIL {
             let rpc_url: String =
                 anvil.endpoint().parse().expect("Could not get Anvil's url");
             config.base_url = rpc_url.clone();
