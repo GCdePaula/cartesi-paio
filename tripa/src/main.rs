@@ -7,6 +7,7 @@ use alloy_core::{
 use alloy_network::EthereumSigner;
 use alloy_node_bindings::AnvilInstance;
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_signer::k256::ecdsa;
 use anyhow::Error;
 use axum::{
     extract::State,
@@ -24,18 +25,23 @@ use tokio::sync::Mutex;
 use tokio::task;
 use toml;
 
-//use futures_util::StreamExt;
+use alloy_signer_wallet::Wallet;
 
-// sol!(
-//     #[allow(missing_docs)]
-//     #[sol(bytecode = "0x1234")]
-//     #[sol(rpc)]
-//     #[derive(Debug)]
-//     INPUT_BOX,
-//     "./input-box-abi.json"
-// );
+sol! {
+    function EvmAdvance(
+        uint256 chainId,
+        address appContract,
+        address msgSender,
+        uint256 blockNumber,
+        uint256 blockTimestamp,
+        uint256 prevRandao,
+        uint256 index,
+        bytes calldata payload
+    ) external;
+}
 
 // Codegen from ABI file to interact with the contract.
+// TODO: Remove this from here into an external file
 sol!(
   #[allow(missing_docs)]
   #[sol(bytecode = "6080604052348015600e575f80fd5b506107918061001c5f395ff3fe608060405234801561000f575f80fd5b506004361061004a575f3560e01c80631789cd631461004e57806361a93c871461007e578063677087c9146100ae578063837298e9146100de575b5f80fd5b610068600480360381019061006391906103ae565b6100fa565b6040516100759190610423565b60405180910390f35b6100986004803603810190610093919061043c565b610238565b6040516100a5919061047f565b60405180910390f35b6100c860048036038101906100c391906104c2565b610280565b6040516100d59190610423565b60405180910390f35b6100f860048036038101906100f39190610500565b6102e0565b005b5f805f808673ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f2090505f818054905090505f468733434244878c8c60405160240161016499989796959493929190610639565b60405160208183030381529060405263837298e960e01b6020820180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff838183161783525050505090505f818051906020012090508381908060018154018082558091505060019003905f5260205f20015f9091909190915055828873ffffffffffffffffffffffffffffffffffffffff167fc05d337121a6e8605c6ec0b72aa29c4210ffe6e5b9cefdd6a7058188a8f66f9884604051610222919061070e565b60405180910390a3809450505050509392505050565b5f805f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20805490509050919050565b5f805f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f2082815481106102cf576102ce61072e565b5b905f5260205f200154905092915050565b505050505050505050565b5f80fd5b5f80fd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61031c826102f3565b9050919050565b61032c81610312565b8114610336575f80fd5b50565b5f8135905061034781610323565b92915050565b5f80fd5b5f80fd5b5f80fd5b5f8083601f84011261036e5761036d61034d565b5b8235905067ffffffffffffffff81111561038b5761038a610351565b5b6020830191508360018202830111156103a7576103a6610355565b5b9250929050565b5f805f604084860312156103c5576103c46102eb565b5b5f6103d286828701610339565b935050602084013567ffffffffffffffff8111156103f3576103f26102ef565b5b6103ff86828701610359565b92509250509250925092565b5f819050919050565b61041d8161040b565b82525050565b5f6020820190506104365f830184610414565b92915050565b5f60208284031215610451576104506102eb565b5b5f61045e84828501610339565b91505092915050565b5f819050919050565b61047981610467565b82525050565b5f6020820190506104925f830184610470565b92915050565b6104a181610467565b81146104ab575f80fd5b50565b5f813590506104bc81610498565b92915050565b5f80604083850312156104d8576104d76102eb565b5b5f6104e585828601610339565b92505060206104f6858286016104ae565b9150509250929050565b5f805f805f805f805f6101008a8c03121561051e5761051d6102eb565b5b5f61052b8c828d016104ae565b995050602061053c8c828d01610339565b985050604061054d8c828d01610339565b975050606061055e8c828d016104ae565b965050608061056f8c828d016104ae565b95505060a06105808c828d016104ae565b94505060c06105918c828d016104ae565b93505060e08a013567ffffffffffffffff8111156105b2576105b16102ef565b5b6105be8c828d01610359565b92509250509295985092959850929598565b6105d981610312565b82525050565b5f82825260208201905092915050565b828183375f83830152505050565b5f601f19601f8301169050919050565b5f61061883856105df565b93506106258385846105ef565b61062e836105fd565b840190509392505050565b5f6101008201905061064d5f83018c610470565b61065a602083018b6105d0565b610667604083018a6105d0565b6106746060830189610470565b6106816080830188610470565b61068e60a0830187610470565b61069b60c0830186610470565b81810360e08301526106ae81848661060d565b90509a9950505050505050505050565b5f81519050919050565b8281835e5f83830152505050565b5f6106e0826106be565b6106ea81856105df565b93506106fa8185602086016106c8565b610703816105fd565b840191505092915050565b5f6020820190508181035f83015261072681846106d6565b905092915050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52603260045260245ffdfea2646970667358221220170ea2b6b0dca75d1f0ed969e8703922be925699df71cc2b5f493dbf5af2b09964736f6c634300081a0033")]
@@ -53,7 +59,7 @@ sol!(
 
     constructor() {}
 
-    function evmAdvance(
+    function EvmAdvance(
       uint256 chainId,
       address appContract,
       address msgSender,
@@ -62,7 +68,7 @@ sol!(
       uint256 prevRandao,
       uint256 index,
       bytes calldata payload
-    ) external {}
+    ) external;
 
     function addInput(
       address appContract,
@@ -71,7 +77,7 @@ sol!(
       bytes32[] storage inputBox = _inputBoxes[appContract];
       uint256 index = inputBox.length;
       bytes memory input = abi.encodeCall(
-        InputBox.evmAdvance,
+        InputBox.EvmAdvance,
         (
           block.chainid,
           appContract,
@@ -108,35 +114,56 @@ sol!(
   }
 );
 
+#[derive(Deserialize)]
+struct Config {
+    base_url: String,
+    sequencer_address: Address,
+    sequencer_signer_string: String,
+    input_box_address: Address,
+    // TODO: add domain (see in message/lib)
+}
+
+impl Config {
+    fn get_signer(&self) -> Wallet<ecdsa::SigningKey> {
+        self.sequencer_signer_string
+            .parse::<alloy_signer_wallet::LocalWallet>()
+            .expect("Could not parse sequencer signature")
+    }
+}
+
 struct Lambda {
     wallet_state: WalletState,
     batch_builder: BatchBuilder,
     config: Config,
+    //provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
     provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
+    // used to keep anvil alive during the lifetime of Lambda
     _anvil_instance: Option<AnvilInstance>,
 }
 
 impl Lambda {
-    async fn build_batch(&self) -> Result<(), Error> {
-        let signer = self
-            .config
-            .sequencer_signer_string
-            .parse::<alloy_signer_wallet::LocalWallet>()
-            .expect("Could not parse sequencer signature");
+    async fn build_batch(&mut self) -> Result<(), Error> {
+        let signer = self.config.get_signer();
 
+        // get the current batch and reset the batch builder
         let batch = self.batch_builder.clone().build();
+        self.batch_builder = BatchBuilder::new(self.config.sequencer_address);
 
-        // TODO: try to use the same provider, it seems that adding a signer makes
-        // it non-Send, so it cannot be part of axum state. or something.
+        // TODO: try to use the lambda's provider, it seems that adding a signer makes
+        // it non-Send, so it cannot be cloned. or something.
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
             .signer(EthereumSigner::from(signer.clone()))
             .on_http(self.config.base_url.parse().unwrap());
 
+        // let provider: &dyn Provider<
+        //     alloy_transport_http::Http<reqwest::Client>,
+        // > = self.provider;
+
         // let input_contract =
         //     INPUT_BOX::new(self.config.input_box_address, provider.clone());
         let input_contract =
-            InputBox::new(self.config.input_box_address, provider.clone());
+            InputBox::new(self.config.input_box_address, provider);
 
         // TODO: calculate gas needed
         // TODO: calculate gas price
@@ -150,24 +177,29 @@ impl Lambda {
         let pending_tx = tx.send().await?;
         let _receipt = pending_tx.get_receipt().await?;
         let log = event.query().await.unwrap();
+        let event = &log[0].0;
+        let input = event.input.clone();
 
-        //let poller = event.watch().await.unwrap();
-        //let mut stream = poller.into_stream();
-        //let log = stream.next().await.unwrap();
+        // testing if the batch is contained in the logs
+        // TODO: improve this test to see if it is correctly inserted
+        let b: &[u8] = &batch.clone().to_bytes();
+        let r = input.windows(b.len()).position(|window| window == b);
+        assert!(r.is_some());
+
+        // TODO: the improvement below does not work for some reason
+        // let decoded_advance =
+        //     EvmAdvanceCall::abi_decode_raw(&input, true).unwrap();
+        // let emitted_batch = decoded_advance.payload;
+        // assert_eq!(emitted_batch, batch.to_bytes());
+
+        // TODO: in production someone can break the above tests
+        //       by submitting someting at the same time
+
         println!("log {:?}", log);
 
         // TODO: do some error handling
         Ok(())
     }
-}
-
-#[derive(Deserialize)]
-struct Config {
-    base_url: String,
-    sequencer_address: Address,
-    sequencer_signer_string: String,
-    input_box_address: Address,
-    // TODO: add domain (see in message/lib)
 }
 
 type LambdaMutex = Mutex<Lambda>;
@@ -228,7 +260,7 @@ async fn main() {
 
     task::spawn(async move {
         loop {
-            let state = state_copy_for_batches.lock().await;
+            let mut state = state_copy_for_batches.lock().await;
             let _ = state.build_batch();
             std::thread::sleep(std::time::Duration::from_secs(10));
         }
@@ -621,7 +653,7 @@ mod tests {
         // here we ommit the signature and only look at the first bytes,
         // because the signature changes every time.
         assert_eq!(&body[0..169], b"{\"sequencer_payment_address\":\"0x63f9725f107358c9115bc9d86c72dd5823e9b1e6\",\"txs\":[{\"message\":{\"app\":\"0x0000000000000000000000000000000000000000\",\"nonce\":0,\"max_gas_price\"");
-        let state_lock = state.lock().await;
+        let mut state_lock = state.lock().await;
         let _batch = state_lock.build_batch().await.unwrap();
 
         let provider = ProviderBuilder::new()
