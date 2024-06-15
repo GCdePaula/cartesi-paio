@@ -5,9 +5,13 @@ use alloy_core::{
     sol_types::Eip712Domain,
 };
 use alloy_network::EthereumSigner;
+use alloy_node_bindings::Anvil;
 use alloy_node_bindings::AnvilInstance;
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rpc_types::TransactionRequest;
 use alloy_signer::k256::ecdsa;
+use alloy_signer_wallet::LocalWallet;
+use alloy_signer_wallet::Wallet;
 use anyhow::Error;
 use axum::{
     extract::State,
@@ -25,7 +29,42 @@ use tokio::sync::Mutex;
 use tokio::task;
 use toml;
 
-use alloy_signer_wallet::Wallet;
+const USE_LOCAL_ANVIL: bool = false;
+const DEPLOY_INPUT_BOX: bool = true;
+
+async fn fund_sequencer(
+    signer_address: Address,
+    sequencer_address: Address,
+    provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
+) {
+    let tx = TransactionRequest::default()
+        .from(signer_address)
+        .to(sequencer_address)
+        .value("30000000000000000000".parse().unwrap());
+    // Send the transaction and wait for the broadcast.
+    let pending_tx = provider.send_transaction(tx).await.unwrap();
+    // Wait for the transaction to be included and get the receipt.
+    let _receipt = pending_tx.get_receipt().await.unwrap();
+}
+
+// TODO: unify this code. the current problem is that provider does not have a size
+//       known at compile time.
+// async fn deploy_input_box(
+//     signer_address: Address,
+//     sequencer_address: Address,
+//     provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
+// ) -> Address {
+//     let nonce = provider
+//         .get_transaction_count(signer_address)
+//         .await
+//         .unwrap();
+//     InputBox::deploy_builder(provider)
+//         .nonce(nonce)
+//         .from(signer_address)
+//         .deploy()
+//         .await
+//         .unwrap()
+// }
 
 sol! {
     function EvmAdvance(
@@ -141,6 +180,7 @@ struct Lambda {
 }
 
 impl Lambda {
+    // TODO: send the build_batch logic to the specific DA backend
     async fn build_batch(&mut self) -> Result<(), Error> {
         let signer = self.config.get_signer();
 
@@ -225,30 +265,66 @@ fn mock_state() -> WalletState {
 #[tokio::main]
 async fn main() {
     let config_string = fs::read_to_string("config.toml").unwrap();
-    let config: Config = toml::from_str(&config_string).unwrap();
+    let mut config: Config = toml::from_str(&config_string).unwrap();
 
     // Create a provider with the HTTP transport using the `reqwest` crate.
-    let provider =
-        // if USE_ANVIL {
-        // let anvil = Anvil::new().try_spawn().expect("Anvil not working");
-        // let signer: LocalWallet = anvil.keys()[0].clone().into();
-        // let rpc_url: String =
-        //     anvil.endpoint().parse().expect("Could not get Anvil's url");
-        // config.base_url = rpc_url.clone();
-        // ProviderBuilder::new()
-        //     .with_recommended_fillers()
-        //     .signer(EthereumSigner::from(signer))
-        //     .on_http(config.base_url.parse().unwrap())
-        // } else {
-        ProviderBuilder::new().on_http(config.base_url.parse().unwrap());
-    //};
+    let (provider, signer) = if USE_LOCAL_ANVIL {
+        let anvil = Anvil::new().try_spawn().expect("Anvil not working");
+        let signer: LocalWallet = anvil.keys()[0].clone().into();
+        let rpc_url: String =
+            anvil.endpoint().parse().expect("Could not get Anvil's url");
+        config.base_url = rpc_url.clone();
+        (
+            Box::new(
+                ProviderBuilder::new()
+                    .with_recommended_fillers()
+                    .signer(EthereumSigner::from(signer.clone()))
+                    .on_http(config.base_url.parse().unwrap()),
+            ),
+            signer,
+        )
+    } else {
+        let signer = config
+            .sequencer_signer_string
+            .parse::<alloy_signer_wallet::LocalWallet>()
+            .expect("Could not parse sequencer signature");
+        (
+            Box::new(
+                ProviderBuilder::new()
+                    .with_recommended_fillers()
+                    .signer(EthereumSigner::from(signer.clone()))
+                    .on_http(config.base_url.parse().unwrap()),
+            ),
+            signer,
+        )
+    };
+
+    fund_sequencer(
+        signer.address(),
+        config.sequencer_address,
+        Box::new(provider.clone()),
+    )
+    .await;
+
+    if DEPLOY_INPUT_BOX {
+        let nonce = provider
+            .get_transaction_count(signer.address())
+            .await
+            .unwrap();
+        config.input_box_address = InputBox::deploy_builder(provider.clone())
+            .nonce(nonce)
+            .from(signer.address())
+            .deploy()
+            .await
+            .unwrap()
+    }
 
     let wallet_state = mock_state();
     let lambda: LambdaMutex = Mutex::new(Lambda {
         wallet_state,
         batch_builder: BatchBuilder::new(config.sequencer_address),
         config,
-        provider: Box::new(provider),
+        provider,
         _anvil_instance: None,
     });
 
@@ -256,10 +332,13 @@ async fn main() {
 
     let state_copy_for_batches = shared_state.clone();
 
+    // this thread will periodically try to build a batch
     task::spawn(async move {
         loop {
+            println!("Building batch...");
+            // TODO: investigate why there are no transactions when the batch is empty
             let mut state = state_copy_for_batches.lock().await;
-            let _ = state.build_batch();
+            let _ = state.build_batch().await.unwrap();
             std::thread::sleep(std::time::Duration::from_secs(10));
         }
     });
@@ -329,14 +408,14 @@ struct Nonce {
 
 async fn gas_price(
     State(state): State<Arc<LambdaMutex>>,
-) -> Result<(StatusCode, Json<GasPrice>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<u128>), (StatusCode, String)> {
     match get_gas_price(state).await {
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         Ok(gas) => Ok((StatusCode::OK, Json(gas))),
     }
 }
 
-async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<GasPrice, Error> {
+async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
     Ok(state.lock().await.provider.get_gas_price().await?)
 }
 
@@ -346,9 +425,6 @@ async fn get_domain(
     (StatusCode::OK, Json(DOMAIN))
 }
 
-// the output of `gas` handler
-type GasPrice = u128;
-
 async fn submit_transaction(
     State(state): State<Arc<LambdaMutex>>,
     Json(payload): Json<WireTransaction>,
@@ -357,6 +433,8 @@ async fn submit_transaction(
     if let Err(e) = signed_transaction.recover(&DOMAIN) {
         return Err((StatusCode::UNAUTHORIZED, e.to_string()));
     };
+    // TODO: add logic to calculate wei per byte, now it is wei per gas
+    // TODO: send the gas logic to the specific DA backend
     let gas_price = match get_gas_price(state.clone()).await {
         Err(e) => {
             return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -391,10 +469,7 @@ async fn submit_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_node_bindings::Anvil;
-    use alloy_rpc_types::TransactionRequest;
     use alloy_signer::SignerSync;
-    use alloy_signer_wallet::LocalWallet;
     use axum::{
         body::{Body, Bytes},
         http::{self, Request, StatusCode},
@@ -407,9 +482,6 @@ mod tests {
     use serde_json::json;
     use tower::Service;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
-
-    // TODO: fix error when not using local anvil
-    const USE_LOCAL_ANVIL: bool = false;
 
     async fn mock_lambda() -> Lambda {
         let config_string = fs::read_to_string("config.toml").unwrap();
@@ -436,41 +508,26 @@ mod tests {
             .signer(EthereumSigner::from(signer.clone()))
             .on_http(config.base_url.clone().parse().unwrap());
 
-        let nonce = provider
-            .get_transaction_count(signer.clone().address())
-            .await
-            .unwrap();
+        if DEPLOY_INPUT_BOX {
+            let nonce = provider
+                .get_transaction_count(signer.address())
+                .await
+                .unwrap();
+            config.input_box_address =
+                InputBox::deploy_builder(provider.clone())
+                    .nonce(nonce)
+                    .from(signer.address())
+                    .deploy()
+                    .await
+                    .unwrap()
+        }
 
-        println!(
-            "nonce = {nonce}, signer_address = {:?}",
-            signer.clone().address()
-        );
-        let input_contract = InputBox::deploy_builder(provider.clone())
-            .nonce(nonce)
-            .from(signer.clone().address())
-            .deploy()
-            .await
-            .unwrap();
-        //let input_contract = InputBox::deploy(provider.clone());
-
-        let a = input_contract;
-        config.input_box_address = input_contract;
-        // let receipt = provider.send_transaction(tx.clone()).await.unwrap();
-
-        // println!("receipt {:?}", receipt);
-
-        let tx = TransactionRequest::default()
-            .from(signer.address())
-            .to(sequencer_address.address())
-            .value("30000000000000000000".parse().unwrap());
-
-        println!("tx {:?}", tx);
-
-        // Send the transaction and wait for the broadcast.
-        let pending_tx = provider.send_transaction(tx).await.unwrap();
-
-        // Wait for the transaction to be included and get the receipt.
-        let _receipt = pending_tx.get_receipt().await.unwrap();
+        fund_sequencer(
+            signer.address(),
+            sequencer_address.address(),
+            Box::new(provider.clone()),
+        )
+        .await;
 
         let balance = provider
             .get_balance(sequencer_address.address())
