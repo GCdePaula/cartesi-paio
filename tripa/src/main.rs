@@ -135,7 +135,6 @@ struct Lambda {
     wallet_state: WalletState,
     batch_builder: BatchBuilder,
     config: Config,
-    //provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
     provider: Box<dyn Provider<alloy_transport_http::Http<reqwest::Client>>>,
     // used to keep anvil alive during the lifetime of Lambda
     _anvil_instance: Option<AnvilInstance>,
@@ -149,19 +148,14 @@ impl Lambda {
         let batch = self.batch_builder.clone().build();
         self.batch_builder = BatchBuilder::new(self.config.sequencer_address);
 
-        // TODO: try to use the lambda's provider, it seems that adding a signer makes
-        // it non-Send, so it cannot be cloned. or something.
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
             .signer(EthereumSigner::from(signer.clone()))
             .on_http(self.config.base_url.parse().unwrap());
+        // TODO: try to use the lambda's provider instead, but it seems that
+        //       it cannot be cloned. or something
+        //         let provider = self.provider.clone();
 
-        // let provider: &dyn Provider<
-        //     alloy_transport_http::Http<reqwest::Client>,
-        // > = self.provider;
-
-        // let input_contract =
-        //     INPUT_BOX::new(self.config.input_box_address, provider.clone());
         let input_contract =
             InputBox::new(self.config.input_box_address, provider);
 
@@ -172,32 +166,36 @@ impl Lambda {
             Bytes::copy_from_slice(&batch.clone().to_bytes()),
         );
 
+        // build event for watching
         let event = input_contract.InputAdded_filter();
-
-        let pending_tx = tx.send().await?;
-        let _receipt = pending_tx.get_receipt().await?;
+        let _ = tx.send().await?.get_receipt().await?;
+        // now go listen to the events
         let log = event.query().await.unwrap();
         let event = &log[0].0;
-        let input = event.input.clone();
 
         // testing if the batch is contained in the logs
         // TODO: improve this test to see if it is correctly inserted
         let b: &[u8] = &batch.clone().to_bytes();
-        let r = input.windows(b.len()).position(|window| window == b);
+        let r = event
+            .input
+            .clone()
+            .windows(b.len())
+            .position(|window| window == b);
         assert!(r.is_some());
 
         // TODO: the improvement below does not work for some reason
+        // let input = event.input.clone();
         // let decoded_advance =
         //     EvmAdvanceCall::abi_decode_raw(&input, true).unwrap();
         // let emitted_batch = decoded_advance.payload;
         // assert_eq!(emitted_batch, batch.to_bytes());
 
-        // TODO: in production someone can break the above tests
-        //       by submitting someting at the same time
+        // TODO: in production someone can break the above assertions
+        //       by submitting an input at the same time
 
         println!("log {:?}", log);
 
-        // TODO: do some error handling
+        // TODO: do more error handling
         Ok(())
     }
 }
@@ -411,7 +409,7 @@ mod tests {
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
     // TODO: fix error when not using local anvil
-    const USE_LOCAL_ANVIL: bool = true;
+    const USE_LOCAL_ANVIL: bool = false;
 
     async fn mock_lambda() -> Lambda {
         let config_string = fs::read_to_string("config.toml").unwrap();
@@ -438,9 +436,25 @@ mod tests {
             .signer(EthereumSigner::from(signer.clone()))
             .on_http(config.base_url.clone().parse().unwrap());
 
-        let input_contract = InputBox::deploy(provider.clone());
+        let nonce = provider
+            .get_transaction_count(signer.clone().address())
+            .await
+            .unwrap();
 
-        config.input_box_address = *input_contract.await.unwrap().address();
+        println!(
+            "nonce = {nonce}, signer_address = {:?}",
+            signer.clone().address()
+        );
+        let input_contract = InputBox::deploy_builder(provider.clone())
+            .nonce(nonce)
+            .from(signer.clone().address())
+            .deploy()
+            .await
+            .unwrap();
+        //let input_contract = InputBox::deploy(provider.clone());
+
+        let a = input_contract;
+        config.input_box_address = input_contract;
         // let receipt = provider.send_transaction(tx.clone()).await.unwrap();
 
         // println!("receipt {:?}", receipt);
