@@ -1,9 +1,25 @@
-Testing
+Dependencies
+============
+
+Install `foundry`, including `avail` and `cast`.
+
+Running
 =======
 
-Install and start avail:
+For useful scripts, install `jaq`:
+
+    cargo install --locked jaq
+    cargo install tomlq
+
+Run anvil:
 
     anvil
+
+Fund account:
+
+
+Testing
+=======
 
 Then:
 
