@@ -27,10 +27,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task;
 use toml;
+use utils::InputBox;
 
 mod utils;
-
-use utils::{fund_sequencer, InputBox};
 
 const USE_LOCAL_ANVIL: bool = false;
 const DEPLOY_INPUT_BOX: bool = true;
@@ -213,13 +212,6 @@ async fn main() {
         )
     };
 
-    fund_sequencer(
-        signer.address(),
-        config.sequencer_address,
-        Box::new(provider.clone()),
-    )
-    .await;
-
     if DEPLOY_INPUT_BOX {
         let nonce = provider
             .get_transaction_count(signer.address())
@@ -233,9 +225,11 @@ async fn main() {
             .unwrap()
     }
 
+    // TODO: load serialized mock_state from file
     let wallet_state = mock_state();
     let lambda: LambdaMutex = Mutex::new(Lambda {
         wallet_state,
+        // TODO: Should we also load serialized batch builder from file?
         batch_builder: BatchBuilder::new(config.sequencer_address),
         config,
         provider,
@@ -273,7 +267,7 @@ async fn main() {
         .route("/batch", get(get_batch))
         .with_state(shared_state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -396,6 +390,7 @@ mod tests {
     use serde_json::json;
     use tower::Service;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
+    use utils::fund_sequencer;
 
     async fn mock_lambda() -> Lambda {
         let config_string = fs::read_to_string("config.toml").unwrap();
