@@ -13,9 +13,9 @@ use alloy_signer_wallet::LocalWallet;
 use alloy_signer_wallet::Wallet;
 use anyhow::Error;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{get, options, post},
     Json, Router,
 };
 use message::WireTransaction;
@@ -146,7 +146,7 @@ impl Lambda {
         // TODO: in production someone can break the above assertions
         //       by submitting an input at the same time
 
-        println!("log {:?}", log);
+        // println!("log {:?}", log);
 
         // TODO: do more error handling
         Ok(())
@@ -212,6 +212,7 @@ async fn main() {
         )
     };
 
+    // TODO: should detect the need from config
     if DEPLOY_INPUT_BOX {
         let nonce = provider
             .get_transaction_count(signer.address())
@@ -256,15 +257,16 @@ async fn main() {
 
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
-        .route("/nonce", get(get_nonce))
+        //.route("/nonce", get(get_nonce))
         // `GET /domain` gets the domain
-        .route("/domain", get(get_domain))
+        //.route("/domain", get(get_domain))
         // `GET /gas` gets price of gas (see gas function)
-        .route("/gas", get(gas_price))
+        //.route("/gas", get(gas_price))
         // `POST /transaction` posts a transaction
-        .route("/transaction", post(submit_transaction))
+        //.route("/transaction", post(submit_transaction))
         // `GET /batch` posts a transaction
-        .route("/batch", get(get_batch))
+        //.route("/batch", get(get_batch))
+        .route("/transaction", options(logging))
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
@@ -331,6 +333,14 @@ async fn get_domain(
     State(_state): State<Arc<LambdaMutex>>,
 ) -> (StatusCode, Json<Eip712Domain>) {
     (StatusCode::OK, Json(DOMAIN))
+}
+
+async fn logging(
+    State(_state): State<Arc<LambdaMutex>>,
+    string: Query<String>,
+) -> (StatusCode, String) {
+    println!("{:}", string.0.clone());
+    (StatusCode::OK, string.0)
 }
 
 async fn submit_transaction(
