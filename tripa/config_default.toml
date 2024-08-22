@@ -1,4 +1,9 @@
-base_url = "http://127.0.0.1:8545"
+base_url = "ws://0.0.0.0:26658"
 sequencer_address = "0x63f9725f107358c9115bc9d86c72dd5823e9b1e6"
 sequencer_signer_string = "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7"
 input_box_address = "0x0000000000000000000000000000033333333333"
+da_layer = "Celestia"
+auth_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJwdWJsaWMiLCJyZWFkIiwid3JpdGUiXX0.OoViGPIGErpJqGZFPfn49rvHaHurtdk-dbVImd7cVTU"
+namespace = "00000000000000000000000000000000000000000000000000000000" 
+seed = "feel maple track ripple refuse mirror whisper about genuine modify surge virus sheriff cancel pride//Alice"
+app_id = 0

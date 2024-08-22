@@ -13,22 +13,27 @@ use alloy_signer::k256::ecdsa;
 use alloy_signer_wallet::LocalWallet;
 use alloy_signer_wallet::Wallet;
 use anyhow::Error;
+use avail_rust::{avail, AvailExtrinsicParamsBuilder, Data, Keypair, SecretUri, SDK};
 use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use celestia_rpc::BlobClient;
+use celestia_types::blob::GasPrice;
+use celestia_types::nmt::Namespace;
+use celestia_types::Blob;
 use message::WireTransaction;
 use message::{AppNonces, BatchBuilder, WalletState, DOMAIN};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task;
 use toml;
-
 const USE_LOCAL_ANVIL: bool = false;
 const DEPLOY_INPUT_BOX: bool = true;
 
@@ -153,13 +158,24 @@ sol!(
   }
 );
 
+#[derive(Deserialize, PartialEq)]
+enum DALayer {
+    EVM,
+    Celestia,
+    Avail,
+}
+
 #[derive(Deserialize)]
 struct Config {
     base_url: String,
     sequencer_address: Address,
     sequencer_signer_string: String,
     input_box_address: Address,
-    // TODO: add domain (see in message/lib)
+    da_layer: DALayer,
+    auth_token: String,
+    namespace: String,
+    seed: String,
+    app_id: u32,
 }
 
 impl Config {
@@ -182,60 +198,107 @@ struct Lambda {
 impl Lambda {
     // TODO: send the build_batch logic to the specific DA backend
     async fn build_batch(&mut self) -> Result<(), Error> {
-        let signer = self.config.get_signer();
-
         // get the current batch and reset the batch builder
         let batch = self.batch_builder.clone().build();
         self.batch_builder = BatchBuilder::new(self.config.sequencer_address);
 
-        let provider = ProviderBuilder::new()
-            .with_recommended_fillers()
-            .signer(EthereumSigner::from(signer.clone()))
-            .on_http(self.config.base_url.parse().unwrap());
-        // TODO: try to use the lambda's provider instead, but it seems that
-        //       it cannot be cloned. or something
-        //         let provider = self.provider.clone();
+        let tx = &batch.clone().to_bytes();
 
-        let input_contract =
-            InputBox::new(self.config.input_box_address, provider);
+        match self.config.da_layer {
+            DALayer::EVM => {
+                let signer = self.config.get_signer();
 
-        // TODO: calculate gas needed
-        // TODO: calculate gas price
-        let tx = input_contract.addInput(
-            self.config.input_box_address,
-            Bytes::copy_from_slice(&batch.clone().to_bytes()),
-        );
+                // get the current batch and reset the batch builder
+                let batch = self.batch_builder.clone().build();
+                self.batch_builder = BatchBuilder::new(self.config.sequencer_address);
 
-        // build event for watching
-        let event = input_contract.InputAdded_filter();
-        let _ = tx.send().await?.get_receipt().await?;
-        // now go listen to the events
-        let log = event.query().await.unwrap();
-        let event = &log[0].0;
+                let provider = ProviderBuilder::new()
+                    .with_recommended_fillers()
+                    .signer(EthereumSigner::from(signer.clone()))
+                    .on_http(self.config.base_url.parse().unwrap());
+                // TODO: try to use the lambda's provider instead, but it seems that
+                //       it cannot be cloned. or something
+                //         let provider = self.provider.clone();
 
-        // testing if the batch is contained in the logs
-        // TODO: improve this test to see if it is correctly inserted
-        let b: &[u8] = &batch.clone().to_bytes();
-        let r = event
-            .input
-            .clone()
-            .windows(b.len())
-            .position(|window| window == b);
-        assert!(r.is_some());
+                let input_contract = InputBox::new(self.config.input_box_address, provider);
 
-        // TODO: the improvement below does not work for some reason
-        // let input = event.input.clone();
-        // let decoded_advance =
-        //     EvmAdvanceCall::abi_decode_raw(&input, true).unwrap();
-        // let emitted_batch = decoded_advance.payload;
-        // assert_eq!(emitted_batch, batch.to_bytes());
+                // TODO: calculate gas needed
+                // TODO: calculate gas price
+                let tx = input_contract.addInput(
+                    self.config.input_box_address,
+                    Bytes::copy_from_slice(&batch.clone().to_bytes()),
+                );
 
-        // TODO: in production someone can break the above assertions
-        //       by submitting an input at the same time
+                // build event for watching
+                let event = input_contract.InputAdded_filter();
+                let _ = tx.send().await?.get_receipt().await?;
+                // now go listen to the events
+                let log = event.query().await.unwrap();
+                let event = &log[0].0;
 
-        println!("log {:?}", log);
+                // testing if the batch is contained in the logs
+                // TODO: improve this test to see if it is correctly inserted
+                let b: &[u8] = &batch.clone().to_bytes();
+                let r = event
+                    .input
+                    .clone()
+                    .windows(b.len())
+                    .position(|window| window == b);
+                assert!(r.is_some());
 
-        // TODO: do more error handling
+                // TODO: the improvement below does not work for some reason
+                // let input = event.input.clone();
+                // let decoded_advance =
+                //     EvmAdvanceCall::abi_decode_raw(&input, true).unwrap();
+                // let emitted_batch = decoded_advance.payload;
+                // assert_eq!(emitted_batch, batch.to_bytes());
+
+                // TODO: in production someone can break the above assertions
+                //       by submitting an input at the same time
+
+                println!("log {:?}", log);
+            }
+            DALayer::Celestia => {
+                let client =
+                    celestia_rpc::Client::new(&self.config.base_url, Some(&self.config.auth_token))
+                        .await
+                        .expect("Failed creating rpc client");
+
+                let data = tx.clone();
+                let blob = Blob::new(
+                    Namespace::new_v0(&hex::decode(self.config.namespace.clone()).unwrap())
+                        .expect("Invalid namespace"),
+                    data,
+                )
+                .unwrap();
+
+                client
+                    .blob_submit(&[blob], GasPrice::default())
+                    .await
+                    .unwrap();
+            }
+            DALayer::Avail => {
+                let client = SDK::new(&self.config.base_url).await.unwrap();
+                let secret_uri = SecretUri::from_str(&self.config.seed).unwrap();
+                let account = Keypair::from_uri(&secret_uri).unwrap();
+                let account_id = account.public_key().to_account_id();
+
+                let nonce = client.api.tx().account_nonce(&account_id).await.unwrap();
+                let data = Data { 0: tx.to_vec() };
+
+                let call = avail::tx().data_availability().submit_data(data);
+                let params = AvailExtrinsicParamsBuilder::new()
+                    .nonce(nonce)
+                    .app_id(self.config.app_id)
+                    .build();
+
+                client
+                    .api
+                    .tx()
+                    .sign_and_submit(&call, &account, params)
+                    .await?;
+            }
+        }
         Ok(())
     }
 }
@@ -264,15 +327,14 @@ fn mock_state() -> WalletState {
 
 #[tokio::main]
 async fn main() {
-    let config_string = fs::read_to_string("config.toml").unwrap();
+    let config_string = fs::read_to_string("config_default.toml").unwrap();
     let mut config: Config = toml::from_str(&config_string).unwrap();
 
     // Create a provider with the HTTP transport using the `reqwest` crate.
     let (provider, signer) = if USE_LOCAL_ANVIL {
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
         let signer: LocalWallet = anvil.keys()[0].clone().into();
-        let rpc_url: String =
-            anvil.endpoint().parse().expect("Could not get Anvil's url");
+        let rpc_url: String = anvil.endpoint().parse().expect("Could not get Anvil's url");
         config.base_url = rpc_url.clone();
         (
             Box::new(
@@ -299,24 +361,25 @@ async fn main() {
         )
     };
 
-    fund_sequencer(
-        signer.address(),
-        config.sequencer_address,
-        Box::new(provider.clone()),
-    )
-    .await;
-
-    if DEPLOY_INPUT_BOX {
-        let nonce = provider
-            .get_transaction_count(signer.address())
-            .await
-            .unwrap();
-        config.input_box_address = InputBox::deploy_builder(provider.clone())
-            .nonce(nonce)
-            .from(signer.address())
-            .deploy()
-            .await
-            .unwrap()
+    if config.da_layer == DALayer::EVM {
+        fund_sequencer(
+            signer.address(),
+            config.sequencer_address,
+            Box::new(provider.clone()),
+        )
+        .await;
+        if DEPLOY_INPUT_BOX {
+            let nonce = provider
+                .get_transaction_count(signer.address())
+                .await
+                .unwrap();
+            config.input_box_address = InputBox::deploy_builder(provider.clone())
+                .nonce(nonce)
+                .from(signer.address())
+                .deploy()
+                .await
+                .unwrap()
+        }
     }
 
     let wallet_state = mock_state();
@@ -363,9 +426,7 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn get_batch(
-    State(state): State<Arc<LambdaMutex>>,
-) -> (StatusCode, Json<BatchBuilder>) {
+async fn get_batch(State(state): State<Arc<LambdaMutex>>) -> (StatusCode, Json<BatchBuilder>) {
     (
         StatusCode::OK,
         Json(state.lock().await.batch_builder.clone()),
@@ -419,9 +480,7 @@ async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
     Ok(state.lock().await.provider.get_gas_price().await?)
 }
 
-async fn get_domain(
-    State(_state): State<Arc<LambdaMutex>>,
-) -> (StatusCode, Json<Eip712Domain>) {
+async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json<Eip712Domain>) {
     (StatusCode::OK, Json(DOMAIN))
 }
 
@@ -436,9 +495,7 @@ async fn submit_transaction(
     // TODO: add logic to calculate wei per byte, now it is wei per gas
     // TODO: send the gas logic to the specific DA backend
     let gas_price = match get_gas_price(state.clone()).await {
-        Err(e) => {
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
-        }
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         Ok(g) => g,
     };
     if payload.max_gas_price < gas_price {
@@ -491,8 +548,7 @@ mod tests {
 
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
         if USE_LOCAL_ANVIL {
-            let rpc_url: String =
-                anvil.endpoint().parse().expect("Could not get Anvil's url");
+            let rpc_url: String = anvil.endpoint().parse().expect("Could not get Anvil's url");
             config.base_url = rpc_url.clone();
         }
 
@@ -513,13 +569,12 @@ mod tests {
                 .get_transaction_count(signer.address())
                 .await
                 .unwrap();
-            config.input_box_address =
-                InputBox::deploy_builder(provider.clone())
-                    .nonce(nonce)
-                    .from(signer.address())
-                    .deploy()
-                    .await
-                    .unwrap()
+            config.input_box_address = InputBox::deploy_builder(provider.clone())
+                .nonce(nonce)
+                .from(signer.address())
+                .deploy()
+                .await
+                .unwrap()
         }
 
         fund_sequencer(
@@ -727,13 +782,9 @@ mod tests {
         let mut state_lock = state.lock().await;
         let _batch = state_lock.build_batch().await.unwrap();
 
-        let provider = ProviderBuilder::new()
-            .on_http(state_lock.config.base_url.parse().unwrap());
+        let provider = ProviderBuilder::new().on_http(state_lock.config.base_url.parse().unwrap());
 
-        let input_contract = InputBox::new(
-            state_lock.config.input_box_address,
-            provider.clone(),
-        );
+        let input_contract = InputBox::new(state_lock.config.input_box_address, provider.clone());
 
         let hash = input_contract
             .getInputHash(state_lock.config.input_box_address, U256::from(0))
