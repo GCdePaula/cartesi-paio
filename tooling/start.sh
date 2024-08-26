@@ -8,6 +8,8 @@ tmux new-session -d -s $session -n servers
 
 # Select pane 0, set dir to <PROJECT NAME>
 tmux selectp -t 0
+tmux set -g pane-border-status top
+tmux set -g pane-border-format "#{pane_index} #{pane_current_command}"
 tmux send-keys "source ~/.bashrc" C-m
 tmux send-keys "cd ../tripa" C-m
 tmux send-keys "anvil" C-m
@@ -15,9 +17,20 @@ sleep 1
 
 # Select pane 1
 tmux splitw -h
+tmux set -g pane-border-status top
+tmux set -g pane-border-format "#{pane_index} #{pane_current_command}"
 tmux send-keys "source ~/.bashrc" C-m
 tmux send-keys "cd ../tripa" C-m
 tmux send-keys "./fund-sequencer.sh" C-m
+
+# Select pane 2
+tmux splitw -v
+tmux set -g pane-border-status top
+tmux set -g pane-border-format "#{pane_index} #{pane_current_command}"
+tmux send-keys "source ~/.bashrc" C-m
+tmux send-keys "cd ../example/frontend/eip712" C-m
+tmux send-keys "./fund-sequencer.sh" C-m
+
 
 # create a new window called <PROJECT NAME>
 #tmux new-window -t $session:2 -n <PROJECT NAME>
