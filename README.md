@@ -11,7 +11,7 @@ Note that this signed transaction contains the address of the destination dapp. 
 ## Sequencer frontend
 
 The frontend is the component in the sequencer that receives user transactions.
-Think that, in some frequency, this component yields a bunch of unordered `SignedTransaction`.
+Think that, in some frequency, this component yields a list of `SignedTransaction`.
 
 There are many kinds of sequencer front end:
 * In a centralized sequencer, users send transactions to the sequencer through a “submit endpoint”.
@@ -21,9 +21,9 @@ There are many kinds of sequencer front end:
 
 ## Sequencer batcher
 
-The batcher is the component in the sequencer that takes an unordered set of `SignedTransaction`s, and builds a `Batch`, consisting of an ordered set of `WireTransaction`s.
+The batcher is the component in the sequencer that takes a list of `SignedTransaction`s and builds a `Batch`, consisting of an ordered set of `WireTransaction`s.
 Here, the sequencer has the freedom to do anything (except forge signatures, since it’s cryptographically impossible).
-They can reorder transactions, compress them, aggregate signatures, whatever.
+They can compress transactions, aggregate signatures, and even reorder transactions (although they ideally shouldn't).
 
 As an important detail, a `Batch` contains a single “payment address”, which we tacitly assume is the wallet of the sequencer who created the batch.
 Also, note that a `Batch` contains transactions with different destination apps/addresses.
@@ -34,7 +34,7 @@ The simplest batcher orders the user signed transactions in a first come first s
 
 ## Sequencer backend
 
-The backend is the component in the sequencer that takes a `Batch` and submits it to a DA layer. It could in Ethereum calldata, Ethereum 4844 blob, Espresso DA, Avail, Celestia, etc.
+The backend is the component in the sequencer that takes a `Batch` and submits it to a DA layer, such as Ethereum calldata, Ethereum 4844, Espresso DA, Avail, Celestia, etc.
 
 
 ## Batch parser library
@@ -51,6 +51,6 @@ This app is written by us, we run a validator to protect it, and has our seal of
 This app also has a batch parser, and a wallet.
 
 Users will deposit money on this app, which will pay for DA costs incurred by the sequencer.
-After parsing a batch, this app will transfer ether from each user that submitted a transaction to the sequencer wallet (i.e. “payment address”), using the maximum gas price signed by the user, and the size of the transaction payload.
+After parsing a batch, this app will transfer ether from each user that submitted a transaction to the sequencer wallet (i.e. “payment address”), using the DA layer's data price (truncated to the maximum gas signed by the user) and the size of the transaction payload.
 
 As an implementation detail, we decided to accept transaction from users without funds (i.e. it’s the sequencer’s fault for batching this transaction).
