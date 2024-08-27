@@ -257,15 +257,15 @@ async fn main() {
 
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
-        //.route("/nonce", get(get_nonce))
+        .route("/nonce", get(get_nonce))
         // `GET /domain` gets the domain
-        //.route("/domain", get(get_domain))
+        .route("/domain", get(get_domain))
         // `GET /gas` gets price of gas (see gas function)
-        //.route("/gas", get(gas_price))
+        .route("/gas", get(gas_price))
         // `POST /transaction` posts a transaction
-        //.route("/transaction", post(submit_transaction))
+        .route("/transaction", post(submit_transaction))
         // `GET /batch` posts a transaction
-        //.route("/batch", get(get_batch))
+        .route("/batch", get(get_batch))
         .route("/transaction", options(logging))
         .with_state(shared_state);
 
