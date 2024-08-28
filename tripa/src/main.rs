@@ -27,6 +27,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task;
 use toml;
+use tower_http::cors::CorsLayer;
 use utils::InputBox;
 
 mod utils;
@@ -267,6 +268,8 @@ async fn main() {
         // `GET /batch` posts a transaction
         .route("/batch", get(get_batch))
         .route("/transaction", options(logging))
+        // TODO: Think about CORS in production
+        .layer(CorsLayer::permissive())
         .with_state(shared_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
@@ -332,6 +335,7 @@ async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
 async fn get_domain(
     State(_state): State<Arc<LambdaMutex>>,
 ) -> (StatusCode, Json<Eip712Domain>) {
+    println!("{:?}", Json(DOMAIN));
     (StatusCode::OK, Json(DOMAIN))
 }
 

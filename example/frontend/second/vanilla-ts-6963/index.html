@@ -3,11 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="stylesheet" href="src/style.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vite + TS</title>
   </head>
   <body>
+    <div id="buttons">
+      <h2>EIP-712 Signing with MetaMask</h2>
+      <button onclick="get_domain()">get domain</button>
+      <text id="domain_text">Domain unknown</text>
+      <button>get nonce</button>
+      <text id="nonce_text">Nonce unknown</text>
+      <button>dapp address</button>
+      <button>data</button>
+    </div>
     <div id="app"></div>
+    <script>
+      async function get_domain() {
+        res = await fetch("http://localhost:3001/domain");
+
+        jres = await res.json();
+        domain_t = document.getElementById("domain_text").innerHTML=JSON.stringify(jres);
+      }
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
