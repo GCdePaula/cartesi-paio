@@ -245,11 +245,12 @@ async fn main() {
     // this thread will periodically try to build a batch
     task::spawn(async move {
         loop {
-            println!("Building batch...");
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            print!("Building batch...");
             // TODO: investigate why there are no transactions when the batch is empty
             let mut state = state_copy_for_batches.lock().await;
             let _ = state.build_batch().await.unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(10));
+            println!("done.");
         }
     });
 
@@ -258,7 +259,7 @@ async fn main() {
 
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
-        .route("/nonce", get(get_nonce))
+        .route("/nonce", post(get_nonce))
         // `GET /domain` gets the domain
         .route("/domain", get(get_domain))
         // `GET /gas` gets price of gas (see gas function)
@@ -301,7 +302,6 @@ async fn get_nonce(
         .map(|app_nonces| app_nonces.get_nonce(&payload.user))
         .unwrap_or(Some(&0))
         .unwrap_or(&0);
-
     let result = Nonce { nonce: *nonce };
     (StatusCode::OK, Json(result))
 }

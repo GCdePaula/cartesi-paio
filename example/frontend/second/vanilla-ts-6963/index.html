@@ -12,18 +12,58 @@
       <h2>EIP-712 Signing with MetaMask</h2>
       <button onclick="get_domain()">get domain</button>
       <text id="domain_text">Domain unknown</text>
-      <button>get nonce</button>
+      <button onclick="get_nonce()">get nonce</button>
       <text id="nonce_text">Nonce unknown</text>
       <button>dapp address</button>
       <button>data</button>
     </div>
     <div id="app"></div>
     <script>
-      async function get_domain() {
-        res = await fetch("http://localhost:3001/domain");
+      domain = undefined;
 
+      async function get_domain() {
+        document.getElementById("domain_text").innerHTML="Retrieving domain..."
+        res = await fetch("http://localhost:3001/domain");
         jres = await res.json();
-        domain_t = document.getElementById("domain_text").innerHTML=JSON.stringify(jres);
+        document.getElementById("domain_text").innerHTML=JSON.stringify(jres);
+        domain = jres;
+      }
+
+      async function getAccount() {
+        const accounts = await window.ethereum
+          .request({ method: "eth_requestAccounts" })
+          .catch((err) => {
+            if (err.code === 4001) {
+              // EIP-1193 userRejectedRequest error.
+              // If this happens, the user rejected the connection request.
+              console.log("Please connect to MetaMask.")
+            } else {
+              console.error(err)
+            }
+          })
+        const account = accounts[0];
+        return account;
+      }
+
+      async function get_nonce() {
+        document.getElementById("nonce_text").innerHTML="Retrieving nonce..."
+        account = await getAccount();
+
+        res = await fetch("http://localhost:3001/nonce", {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(
+            {
+              application: "0x0000000000000000000011111111111111111111",
+              user: account,
+            }
+          )
+        });
+        jres = await res.json();
+        document.getElementById("nonce_text").innerHTML=JSON.stringify(jres);
+        domain = jres;
       }
     </script>
     <script type="module" src="/src/main.ts"></script>
