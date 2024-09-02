@@ -12,14 +12,48 @@
       <h2>EIP-712 Signing with MetaMask</h2>
       <button onclick="get_domain()">get domain</button>
       <text id="domain_text">Domain unknown</text>
+      <button onclick="get_gas()">get gas</button>
+      <text id="gas_text">Gas unknown</text>
       <button onclick="get_nonce()">get nonce</button>
       <text id="nonce_text">Nonce unknown</text>
-      <button>dapp address</button>
-      <button>data</button>
+      <form id="dappForm" onsubmit="handleFormSubmit(event)">
+        <label for="dappAddress">DApp Address:</label>
+        <input type="text" id="dappAddress" value="0x0000000000000000000000000000000000000000"
+               name="dappAddress" required>
+        <label for="data">Data:</label>
+        <input type="text" id="data" value="0x00" name="data" required>
+        <button onclick="request_signature()">sign</button>
+        <text id="signature_text">No signature</text>
+        <button type="submit">Submit</button>
+      </form>
     </div>
     <div id="app"></div>
     <script>
       domain = undefined;
+      gas = undefined;
+      nonce = undefined;
+
+      async function handleFormSubmit(event) {
+        event.preventDefault(); // Prevent the default form submission
+        const dappAddress = document.getElementById('dappAddress').value;
+        const data = document.getElementById('data').value;
+        console.log('DApp Address:', dappAddress);
+        console.log('Data:', data);
+        const res = await fetch("http://localhost:3001/");
+      }
+
+      async function request_signature() {
+        document.getElementById("signature_text").innerHTML="Retrieving signature..."
+        if (domain == null) {
+          document.getElementById("signature_text").innerHTML="No domain yet... no signature"
+        }
+        if (gas == null) {
+          document.getElementById("signature_text").innerHTML="No gas yet... no signature"
+        }
+        if (nonce == null) {
+          document.getElementById("signature_text").innerHTML="No nonce yet... no signature"
+        }
+      }
 
       async function get_domain() {
         document.getElementById("domain_text").innerHTML="Retrieving domain..."
@@ -27,6 +61,14 @@
         jres = await res.json();
         document.getElementById("domain_text").innerHTML=JSON.stringify(jres);
         domain = jres;
+      }
+
+      async function get_gas() {
+        document.getElementById("gas_text").innerHTML="Retrieving gas..."
+        res = await fetch("http://localhost:3001/gas");
+        jres = await res.json();
+        document.getElementById("gas_text").innerHTML=JSON.stringify(jres);
+        gas = jres;
       }
 
       async function getAccount() {
@@ -63,7 +105,7 @@
         });
         jres = await res.json();
         document.getElementById("nonce_text").innerHTML=JSON.stringify(jres);
-        domain = jres;
+        nonce = jres;
       }
     </script>
     <script type="module" src="/src/main.ts"></script>

@@ -242,6 +242,8 @@ async fn main() {
 
     let state_copy_for_batches = shared_state.clone();
 
+    // TODO: investigate why there are so many frequent eth_blockNumber requests to L1
+
     // this thread will periodically try to build a batch
     task::spawn(async move {
         loop {
@@ -268,7 +270,6 @@ async fn main() {
         .route("/transaction", post(submit_transaction))
         // `GET /batch` posts a transaction
         .route("/batch", get(get_batch))
-        .route("/transaction", options(logging))
         // TODO: Think about CORS in production
         .layer(CorsLayer::permissive())
         .with_state(shared_state);
@@ -337,14 +338,6 @@ async fn get_domain(
 ) -> (StatusCode, Json<Eip712Domain>) {
     println!("{:?}", Json(DOMAIN));
     (StatusCode::OK, Json(DOMAIN))
-}
-
-async fn logging(
-    State(_state): State<Arc<LambdaMutex>>,
-    string: Query<String>,
-) -> (StatusCode, String) {
-    println!("{:}", string.0.clone());
-    (StatusCode::OK, string.0)
 }
 
 async fn submit_transaction(
