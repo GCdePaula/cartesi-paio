@@ -31,6 +31,9 @@ alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0
 alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }
 futures-util = "0.3.30"
 avail-rust = { git = "https://github.com/availproject/avail", rev="5dc73fb028eed1413a1f15ee22c8a9641b0d23a8"}
+surf-disco = "0.9"
+tide-disco = "0.9"
+es-version = { git = "https://github.com/EspressoSystems/es-version.git", branch = "main" }
 celestia-rpc = {git = "https://github.com/eigerco/lumina"}
 celestia-types = { git = "https://github.com/eigerco/lumina" }
 hex = "0.4.3"

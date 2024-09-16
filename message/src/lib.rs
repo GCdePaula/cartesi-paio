@@ -8,7 +8,8 @@ use alloy_core::{
 use alloy_signer::Signature;
 
 use serde::{Deserialize, Serialize};
-
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use derive_more::{Display, Into};
 pub struct WalletState {
     pub domain: Eip712Domain,
 
@@ -285,6 +286,44 @@ impl BatchBuilder {
             sequencer_payment_address: self.sequencer_payment_address,
             txs,
         }
+    }
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Ord,
+    Display,
+    PartialOrd,
+    PartialEq,
+    Eq,
+    Hash,
+    Debug,
+    CanonicalDeserialize,
+    CanonicalSerialize,
+    Default,
+    Clone,
+    Copy,
+    Into,
+)]
+#[display(fmt = "{_0}")]
+pub struct NamespaceId(u64);
+
+impl From<u64> for NamespaceId {
+    fn from(number: u64) -> Self {
+        Self(number)
+    }
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EspressoTransaction {
+    namespace: NamespaceId,
+    #[serde(with = "base64_bytes")]
+    payload: Vec<u8>,
+}
+
+impl EspressoTransaction {
+    pub fn new(namespace: NamespaceId, payload: Vec<u8>) -> Self {
+        Self { namespace, payload }
     }
 }
 

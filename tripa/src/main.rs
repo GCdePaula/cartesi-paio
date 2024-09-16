@@ -24,8 +24,9 @@ use celestia_rpc::BlobClient;
 use celestia_types::blob::GasPrice;
 use celestia_types::nmt::Namespace;
 use celestia_types::Blob;
-use message::WireTransaction;
+use es_version::SequencerVersion;
 use message::{AppNonces, BatchBuilder, WalletState, DOMAIN};
+use message::{EspressoTransaction, WireTransaction};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -163,6 +164,7 @@ enum DALayer {
     EVM,
     Celestia,
     Avail,
+    Espresso,
 }
 
 #[derive(Deserialize)]
@@ -176,6 +178,7 @@ struct Config {
     namespace: String,
     seed: String,
     app_id: u32,
+    vm_id: u32,
 }
 
 impl Config {
@@ -194,7 +197,6 @@ struct Lambda {
     // used to keep anvil alive during the lifetime of Lambda
     _anvil_instance: Option<AnvilInstance>,
 }
-
 impl Lambda {
     // TODO: send the build_batch logic to the specific DA backend
     async fn build_batch(&mut self) -> Result<(), Error> {
@@ -274,6 +276,19 @@ impl Lambda {
 
                 client
                     .blob_submit(&[blob], GasPrice::default())
+                    .await
+                    .unwrap();
+            }
+            DALayer::Espresso => {
+                let txn = EspressoTransaction::new((self.config.vm_id as u64).into(), tx.clone());
+
+                let client: surf_disco::Client<tide_disco::error::ServerError, SequencerVersion> =
+                    surf_disco::Client::new(self.config.base_url.parse().unwrap());
+                client
+                    .post::<()>("v0/submit/submit")
+                    .body_json(&txn)
+                    .unwrap()
+                    .send()
                     .await
                     .unwrap();
             }
