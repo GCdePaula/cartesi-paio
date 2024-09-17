@@ -1,6 +1,10 @@
 Dependencies
 ============
 
+Install dependencies:
+
+    sudo apt install libssl-dev
+
 Install `foundry`, including `avail` and `cast`.
 
 Running

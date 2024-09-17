@@ -9,9 +9,10 @@ const connectWithProvider = async (
   wallet: EIP6963AnnounceProviderEvent["detail"]
 ) => {
   try {
+    console.log("Connecting")
     await wallet.provider.request({ method: "eth_requestAccounts" })
   } catch (error) {
-    console.error("Failed to connect to provider:", error)
+    console.log("Failed to connect to provider:", error)
   }
 }
 
@@ -20,6 +21,7 @@ export function listProviders(element: HTMLDivElement) {
   window.addEventListener(
     "eip6963:announceProvider",
     (event: EIP6963AnnounceProviderEvent) => {
+      console.log("Anounce provider");
       const button = document.createElement("button")
 
       button.innerHTML = `

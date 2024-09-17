@@ -336,7 +336,7 @@ async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
 async fn get_domain(
     State(_state): State<Arc<LambdaMutex>>,
 ) -> (StatusCode, Json<Eip712Domain>) {
-    println!("{:?}", Json(DOMAIN));
+    println!("Domain requested: {:?}", Json(DOMAIN));
     (StatusCode::OK, Json(DOMAIN))
 }
 

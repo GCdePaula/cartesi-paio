@@ -78,7 +78,7 @@
             if (err.code === 4001) {
               // EIP-1193 userRejectedRequest error.
               // If this happens, the user rejected the connection request.
-              console.log("Please connect to MetaMask.")
+              alert("Please connect to MetaMask.")
             } else {
               console.error(err)
             }
@@ -88,9 +88,9 @@
       }
 
       async function get_nonce() {
-        document.getElementById("nonce_text").innerHTML="Retrieving nonce..."
+        document.getElementById("nonce_text").innerHTML="Retrieving account..."
         account = await getAccount();
-
+        document.getElementById("nonce_text").innerHTML="Retrieving nonce..."
         res = await fetch("http://localhost:3001/nonce", {
           method: 'POST',
           headers: {
