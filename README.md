@@ -81,24 +81,30 @@ In such cases, it's the sequencer's responsibility for including these transacti
 This may change in the future.
 
 
-
-## `tripa` service
-
-Tripa is a sequencer implementation using the Paio SDK.
-It is a centralized sequencer that submits transactions to Ethereum as calldata.
-
-It exposes the following endpoints:
-* `GET /nonce`: get user nonce.
-* `GET /domain`: get the domain.
-* `GET /gas`: get gas price.
-* `POST /transaction`: post a transaction
-* `GET /batch`: get current batch
-
 ## `message` lib
 
-The `message` crate contains basic types definitions
-It also implements batch encoding/decoding, and signature and nonce verification.
+The `message` crate contains basic types definitions.
+In particular, it defines the following EIP-712 signing message, described as a Solidity `struct`:
 
+```solidity
+struct SigningMessage {
+  address app;
+  uint64 nonce;
+  uint128 max_gas_price;
+  bytes data;
+}
+```
+
+The `app` field is the target application address.
+This is needed because all apps receive all transactions in Paio; this label is used by apps to filter the transactions destined to them.
+The `nonce` field is the total number of transactions the sender has sent for that app.
+This means each app has its own nonce counter per user.
+The `max_gas_price` field is the maximum price the user is willing to pay for each byte of DA.
+The `data` contains the input payload.
+Note that there's no sender address here.
+This is because the `SigningMessage` is accompanied by a signature, and the signature implicitly contains the sender's address.
+
+This crate also implements batch encoding/decoding, and signature and nonce verification.
 Batches are currently encoded using the [`postcard` crate](https://crates.io/crates/postcard).
 The crate offers the `AppState` type that can be used to validate signatures and nonces.
 This type can be used like this:
@@ -117,3 +123,57 @@ for tx in batch {
     println!("{:?}", tx);
 }
 ```
+
+
+## `tripa` service
+
+TODO: I'm not sure about these at all; I didn't write this part, I'm gathering this info by reading the code.
+
+Tripa is a sequencer implementation using the Paio SDK.
+It is a centralized sequencer that submits transactions to Ethereum as calldata.
+It exposes the following endpoints:
+
+
+### `GET /nonce`
+get user nonce.
+
+### `GET /domain`
+get the domain.
+
+### `GET /gas`
+get gas price.
+
+### `GET /batch`
+get current batch
+
+### `POST /transaction`
+
+TODO: not sure this is right... (but conceptually it should be this)
+
+Receives a JSON with the following format:
+
+```
+{
+  "message":{
+    "app":"0x0000000000000000000000000000000000000000",
+    "nonce":0,
+    "max_gas_price":0,
+    "data":"0x0"
+  },
+
+  "signature":{
+    "r":"0x0000000000000000000000000000000000000000000000000000000000000000",
+    "s":"0x0000000000000000000000000000000000000000000000000000000000000000",
+    "yParity":"0x0"
+  }
+}
+```
+
+Where the fields are:
+
+* `app`: hex-encoded target application 20-byte address
+* `nonce`: integer with user nonce at target application
+* `max_gas_price`: integer with maximum price user is willing to pay for DA gas
+* `data`: hex-encoded input payload for target application
+* `r` and `s`: hex-encoded secp256k1 first and second 32-bytes of signature
+* `yParity`: hex-encoded secp256k1 parity
