@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use alloy_core::{
     primitives::{Address, SignatureError, U256},
     sol,
-    sol_types::{eip712_domain, Eip712Domain, SolStruct},
+    sol_types::{Eip712Domain, SolStruct},
 };
 use alloy_signer::Signature;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug)]
 pub struct WalletState {
     pub domain: Eip712Domain,
 
@@ -24,9 +25,7 @@ impl WalletState {
         batch
             .txs
             .iter()
-            .filter_map(|tx| {
-                self.verify_single(batch.sequencer_payment_address, tx)
-            })
+            .filter_map(|tx| self.verify_single(batch.sequencer_payment_address, tx))
             .collect()
     }
     // TODO: create custom error type in order to explain why it did not work
@@ -51,10 +50,7 @@ impl WalletState {
         tx_opt
     }
 
-    pub fn verify_raw_batch(
-        &mut self,
-        raw_batch: &[u8],
-    ) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
         let batch = Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
@@ -78,9 +74,9 @@ impl WalletState {
 }
 
 impl WalletState {
-    pub fn new() -> Self {
+    pub fn new(domain: Eip712Domain) -> Self {
         WalletState {
-            domain: DOMAIN.clone(),
+            domain,
             app_nonces: HashMap::new(),
             balances: HashMap::new(),
         }
@@ -90,6 +86,7 @@ impl WalletState {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct AppState {
     pub domain: Eip712Domain,
     pub address: Address,
@@ -97,6 +94,14 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub fn new(domain: Eip712Domain, address: Address) -> Self {
+        Self {
+            domain,
+            address,
+            nonces: AppNonces::default(),
+        }
+    }
+
     pub fn verify_batch(&mut self, batch: Batch) -> Vec<Transaction> {
         batch
             .txs
@@ -111,26 +116,19 @@ impl AppState {
             .collect()
     }
 
-    pub fn verify_raw_batch(
-        &mut self,
-        raw_batch: &[u8],
-    ) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
         let batch = Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
 }
 
+#[derive(Clone, Debug, Default)]
 pub struct AppNonces {
     // user address to nonce
     pub nonces: HashMap<Address, u64>,
 }
 
 impl AppNonces {
-    pub fn new() -> Self {
-        AppNonces {
-            nonces: HashMap::new(),
-        }
-    }
     pub fn set_nonce(&mut self, address: Address, value: u64) {
         self.nonces.insert(address, value);
     }
@@ -157,14 +155,15 @@ impl AppNonces {
     }
 }
 
-impl Default for AppNonces {
-    fn default() -> Self {
-        Self {
-            nonces: HashMap::new(),
-        }
-    }
-}
+// impl Default for AppNonces {
+//     fn default() -> Self {
+//         Self {
+//             nonces: HashMap::new(),
+//         }
+//     }
+// }
 
+#[derive(Clone, Debug)]
 pub struct Transaction {
     pub sender: Address,
     pub app: Address,
@@ -176,10 +175,7 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn cost(&self) -> Option<U256> {
-        U256::checked_mul(
-            U256::from(self.max_gas_price),
-            U256::from(self.data.len()),
-        )
+        U256::checked_mul(U256::from(self.max_gas_price), U256::from(self.data.len()))
     }
 }
 
@@ -299,30 +295,30 @@ impl SignedTransaction {
         self.recover(domain).is_ok()
     }
 
-    pub fn recover(
-        &self,
-        domain: &Eip712Domain,
-    ) -> Result<Address, SignatureError> {
+    pub fn recover(&self, domain: &Eip712Domain) -> Result<Address, SignatureError> {
         let signing_hash = self.message.eip712_signing_hash(&domain);
         self.signature.recover_address_from_prehash(&signing_hash)
     }
 }
 
-pub const DOMAIN: Eip712Domain = eip712_domain!(
-   name: "CartesiPaio",
-   version: "0.0.1",
-   chain_id: 1337,
-   verifying_contract: Address::ZERO,
-);
-
 #[cfg(test)]
 mod tests {
-    use alloy_core::sol_types::SolStruct;
+    use alloy_core::{
+        primitives::Address,
+        sol_types::{eip712_domain, SolStruct},
+    };
     use alloy_signer::SignerSync;
     use alloy_signer_wallet::LocalWallet;
     use std::str::FromStr;
 
     use super::*;
+
+    pub const DOMAIN: Eip712Domain = eip712_domain!(
+       name: "CartesiPaio",
+       version: "0.0.1",
+       chain_id: 1337,
+       verifying_contract: Address::ZERO,
+    );
 
     fn produce_tx() -> (String, Address) {
         let json = r#"
@@ -350,7 +346,7 @@ mod tests {
 
         let signature = signer.sign_typed_data_sync(&v, &DOMAIN).unwrap();
         assert_eq!(
-            r#"{"r":"0xfa6f7fd6825c953b355c8970fd2c9322162987bfb6898aa78f74f2be6bf8b10c","s":"0x9a2018a7e31b623a91802147e6f8d5c658e17191e69f6663052efda71db72e2","yParity":"0x1"}"#,
+            r#"{"r":"0xca6ac1aec3b452bf516bb1afef50b4c7bec2245b4fa8d8c489eeaff85d49c8be","s":"0x6e60e9e3ae14e9e2f4ef82f38d9dd7ecb08b589842d52623a20d67e2266880d9","yParity":"0x0"}"#,
             serde_json::to_string(&signature).unwrap()
         );
         let signed_tx = SignedTransaction {
@@ -361,7 +357,7 @@ mod tests {
         let ret = serde_json::to_string(&signed_tx).unwrap();
 
         assert_eq!(
-            r#"{"message":{"app":"0x0000000000000000000000000000000000000000","nonce":0,"max_gas_price":0,"data":"0x48656c6c6f2c20576f726c6421"},"signature":{"r":"0xfa6f7fd6825c953b355c8970fd2c9322162987bfb6898aa78f74f2be6bf8b10c","s":"0x9a2018a7e31b623a91802147e6f8d5c658e17191e69f6663052efda71db72e2","yParity":"0x1"}}"#,
+            r#"{"message":{"app":"0x0000000000000000000000000000000000000000","nonce":0,"max_gas_price":0,"data":"0x48656c6c6f2c20576f726c6421"},"signature":{"r":"0xca6ac1aec3b452bf516bb1afef50b4c7bec2245b4fa8d8c489eeaff85d49c8be","s":"0x6e60e9e3ae14e9e2f4ef82f38d9dd7ecb08b589842d52623a20d67e2266880d9","yParity":"0x0"}}"#,
             ret
         );
 
@@ -386,5 +382,19 @@ mod tests {
             r#"{"name":"CartesiPaio","version":"0.0.1","chainId":"0x539","verifyingContract":"0x0000000000000000000000000000000000000000"}"#,
             serde_json::to_string(&DOMAIN).unwrap()
         );
+
+        let mut builder = BatchBuilder::new(Address::ZERO);
+        builder.add(tx);
+        let batch = builder.build();
+        let raw_batch = batch.to_bytes();
+
+        let mut app_state = AppState::new(DOMAIN, Address::ZERO);
+        let batch = app_state
+            .verify_raw_batch(&raw_batch)
+            .expect("failed to parse batch");
+
+        for tx in batch {
+            println!("{:?}", tx);
+        }
     }
 }
