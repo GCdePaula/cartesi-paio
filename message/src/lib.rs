@@ -155,14 +155,6 @@ impl AppNonces {
     }
 }
 
-// impl Default for AppNonces {
-//     fn default() -> Self {
-//         Self {
-//             nonces: HashMap::new(),
-//         }
-//     }
-// }
-
 #[derive(Clone, Debug)]
 pub struct Transaction {
     pub sender: Address,
