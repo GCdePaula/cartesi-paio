@@ -2,7 +2,7 @@
 use alloy_core::{
     primitives::{address, Address, Bytes, U256},
     sol,
-    sol_types::Eip712Domain,
+    sol_types::{eip712_domain, Eip712Domain},
 };
 use alloy_network::EthereumSigner;
 use alloy_node_bindings::Anvil;
@@ -20,7 +20,7 @@ use axum::{
     Json, Router,
 };
 use message::WireTransaction;
-use message::{AppNonces, BatchBuilder, WalletState, DOMAIN};
+use message::{AppNonces, BatchBuilder, WalletState};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -28,6 +28,13 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task;
 use toml;
+
+pub const DOMAIN: Eip712Domain = eip712_domain!(
+   name: "CartesiPaio",
+   version: "0.0.1",
+   chain_id: 1337,
+   verifying_contract: Address::ZERO,
+);
 
 const USE_LOCAL_ANVIL: bool = false;
 const DEPLOY_INPUT_BOX: bool = true;
@@ -196,8 +203,7 @@ impl Lambda {
         //       it cannot be cloned. or something
         //         let provider = self.provider.clone();
 
-        let input_contract =
-            InputBox::new(self.config.input_box_address, provider);
+        let input_contract = InputBox::new(self.config.input_box_address, provider);
 
         // TODO: calculate gas needed
         // TODO: calculate gas price
@@ -248,12 +254,12 @@ fn mock_state() -> WalletState {
     let app1_address = address!("0000000000000000000000000000000000000003");
     let app2_address = address!("0000000000000000000000000000000000000023");
     let signer_address = address!("7306897365c277A6951FDA9519fD0CCc16341E4A");
-    let mut app1_nonces: AppNonces = AppNonces::new();
+    let mut app1_nonces: AppNonces = AppNonces::default();
     app1_nonces.set_nonce(john_address, 3);
     app1_nonces.set_nonce(joe_address, 15);
-    let mut app2_nonces: AppNonces = AppNonces::new();
+    let mut app2_nonces: AppNonces = AppNonces::default();
     app2_nonces.set_nonce(john_address, 22);
-    let mut wallet_state: WalletState = WalletState::new();
+    let mut wallet_state: WalletState = WalletState::new(DOMAIN);
     wallet_state.add_app_nonce(app1_address, app1_nonces);
     wallet_state.add_app_nonce(app2_address, app2_nonces);
     wallet_state.deposit(john_address, U256::from(2000000000));
@@ -271,8 +277,7 @@ async fn main() {
     let (provider, signer) = if USE_LOCAL_ANVIL {
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
         let signer: LocalWallet = anvil.keys()[0].clone().into();
-        let rpc_url: String =
-            anvil.endpoint().parse().expect("Could not get Anvil's url");
+        let rpc_url: String = anvil.endpoint().parse().expect("Could not get Anvil's url");
         config.base_url = rpc_url.clone();
         (
             Box::new(
@@ -363,9 +368,7 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn get_batch(
-    State(state): State<Arc<LambdaMutex>>,
-) -> (StatusCode, Json<BatchBuilder>) {
+async fn get_batch(State(state): State<Arc<LambdaMutex>>) -> (StatusCode, Json<BatchBuilder>) {
     (
         StatusCode::OK,
         Json(state.lock().await.batch_builder.clone()),
@@ -419,9 +422,7 @@ async fn get_gas_price(state: Arc<LambdaMutex>) -> Result<u128, Error> {
     Ok(state.lock().await.provider.get_gas_price().await?)
 }
 
-async fn get_domain(
-    State(_state): State<Arc<LambdaMutex>>,
-) -> (StatusCode, Json<Eip712Domain>) {
+async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json<Eip712Domain>) {
     (StatusCode::OK, Json(DOMAIN))
 }
 
@@ -436,9 +437,7 @@ async fn submit_transaction(
     // TODO: add logic to calculate wei per byte, now it is wei per gas
     // TODO: send the gas logic to the specific DA backend
     let gas_price = match get_gas_price(state.clone()).await {
-        Err(e) => {
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
-        }
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         Ok(g) => g,
     };
     if payload.max_gas_price < gas_price {
@@ -477,7 +476,7 @@ mod tests {
         routing::RouterIntoService,
     };
     use http_body_util::BodyExt; // for `collect`
-    use message::{SignedTransaction, SigningMessage, DOMAIN};
+    use message::{SignedTransaction, SigningMessage};
     use mime;
     use serde_json::json;
     use tower::Service;
@@ -491,8 +490,7 @@ mod tests {
 
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
         if USE_LOCAL_ANVIL {
-            let rpc_url: String =
-                anvil.endpoint().parse().expect("Could not get Anvil's url");
+            let rpc_url: String = anvil.endpoint().parse().expect("Could not get Anvil's url");
             config.base_url = rpc_url.clone();
         }
 
@@ -513,13 +511,12 @@ mod tests {
                 .get_transaction_count(signer.address())
                 .await
                 .unwrap();
-            config.input_box_address =
-                InputBox::deploy_builder(provider.clone())
-                    .nonce(nonce)
-                    .from(signer.address())
-                    .deploy()
-                    .await
-                    .unwrap()
+            config.input_box_address = InputBox::deploy_builder(provider.clone())
+                .nonce(nonce)
+                .from(signer.address())
+                .deploy()
+                .await
+                .unwrap()
         }
 
         fund_sequencer(
@@ -727,13 +724,9 @@ mod tests {
         let mut state_lock = state.lock().await;
         let _batch = state_lock.build_batch().await.unwrap();
 
-        let provider = ProviderBuilder::new()
-            .on_http(state_lock.config.base_url.parse().unwrap());
+        let provider = ProviderBuilder::new().on_http(state_lock.config.base_url.parse().unwrap());
 
-        let input_contract = InputBox::new(
-            state_lock.config.input_box_address,
-            provider.clone(),
-        );
+        let input_contract = InputBox::new(state_lock.config.input_box_address, provider.clone());
 
         let hash = input_contract
             .getInputHash(state_lock.config.input_box_address, U256::from(0))

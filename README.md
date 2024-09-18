@@ -4,7 +4,9 @@ Paio is a Sequencer SDK that provides a suite of libraries for building sequence
 It streamlines the process of receiving, batching, and submitting user transactions to Data Availability (DA) layers.
 Through an integrated payment application, users can pay for the DA costs incurred during transaction processing.
 
-## User transactions
+## Concepts
+
+### User transactions
 
 Users build an [EIP-712](https://eips.ethereum.org/EIPS/eip-712) signed transaction.
 A `SignedTransaction` consists of the pair `SigningMessage` and a `Signature`.
@@ -17,7 +19,7 @@ The signed transaction includes:
 - The maximum gas price the user is willing to pay for Data Availability (DA).
 
 
-## Sequencer frontend
+### Sequencer frontend
 
 The sequencer frontend is the component that receives user transactions.
 At regular intervals, it produces a list of `SignedTransaction`s.
@@ -29,7 +31,7 @@ There are various types of sequencer frontends:
 - **Espresso Sequencer**: Users send transactions to the Espresso network, where sequencers collect them. An elected builder then sequences these transactions.
 
 
-## Sequencer Batcher
+### Sequencer Batcher
 
 The batcher component takes a list of `SignedTransaction`s and builds a `Batch`, which consists of an ordered set of `WireTransaction`s.
 
@@ -42,7 +44,7 @@ The critical aspect is that a `Batch` can be parsed and verified into a list of 
 A simple batcher might order user transactions on a first-come, first-served basis and serialize them into a blob.
 
 
-## Sequencer Backend
+### Sequencer Backend
 
 The backend component takes a `Batch` and submits it to a DA layer, such as:
 
@@ -54,14 +56,15 @@ The backend component takes a `Batch` and submits it to a DA layer, such as:
 - EigenDA
 
 
-## Batch Parser Library
+### Applications
 
-These batches are received by all applications, each containing a batch parser.
+Batches are received by all applications.
+Each application should use the batch parser library to parse and validate transactions.
 The parser reads a batch, verifies its validity (checking signatures and nonces), and returns an ordered list of `Transaction`s.
 The parser operates within the Cartesi machine and is compiled to RISC-V.
 
 
-## Payment Application
+### Payment Application
 
 One of the dApps is special: the **payment application**.
 This app is developed and validated by us and carries our seal of approval.
@@ -76,3 +79,41 @@ Key features of the payment app:
 As a current important implementation detail, we accept transactions from users without sufficient funds.
 In such cases, it's the sequencer's responsibility for including these transactions in the batch.
 This may change in the future.
+
+
+
+## `tripa` service
+
+Tripa is a sequencer implementation using the Paio SDK.
+It is a centralized sequencer that submits transactions to Ethereum as calldata.
+
+It exposes the following endpoints:
+* `GET /nonce`: get user nonce.
+* `GET /domain`: get the domain.
+* `GET /gas`: get gas price.
+* `POST /transaction`: post a transaction
+* `GET /batch`: get current batch
+
+## `message` lib
+
+The `message` crate contains basic types definitions
+It also implements batch encoding/decoding, and signature and nonce verification.
+
+Batches are currently encoded using the [`postcard` crate](https://crates.io/crates/postcard).
+The crate offers the `AppState` type that can be used to validate signatures and nonces.
+This type can be used like this:
+
+```rust
+use message::AppState;
+
+let raw_batch = ...; // obtain raw batch from eg libcmt.
+
+let mut app_state = AppState::new(DOMAIN, Address::ZERO);
+let batch = app_state
+    .verify_raw_batch(&raw_batch)
+    .expect("failed to parse batch");
+
+for tx in batch {
+    println!("{:?}", tx);
+}
+```
