@@ -8,7 +8,7 @@ Through an integrated payment application, users can pay for the DA costs incurr
 
 ### User transactions
 
-Users build an [EIP-712](https://eips.ethereum.org/EIPS/eip-712) signed transaction.
+Users build an [EIP-712](https://eips.ethereum.org/EIPS/eip-712) signed transaction, using Paio's domain.
 A `SignedTransaction` consists of the pair `SigningMessage` and a `Signature`.
 Users then submit this transaction to a sequencer frontend.
 
@@ -67,6 +67,7 @@ The parser operates within the Cartesi machine and is compiled to RISC-V.
 ### Payment Application
 
 One of the dApps is special: the **payment application**.
+The address of this application represents Paio, and is included in the EIP-712 domain.
 This app is developed and validated by us and carries our seal of approval.
 Sequencers must trust this app but not necessarily any others.
 
@@ -104,17 +105,23 @@ The `data` contains the input payload.
 Note that there's no sender address here.
 This is because the `SigningMessage` is accompanied by a signature, and the signature implicitly contains the sender's address.
 
+Note that, in addition to the `app` target address, there's Paio's address (that is, the address of the payment app), which is included in the domain.
+
 This crate also implements batch encoding/decoding, and signature and nonce verification.
 Batches are currently encoded using the [`postcard` crate](https://crates.io/crates/postcard).
 The crate offers the `AppState` type that can be used to validate signatures and nonces.
 This type can be used like this:
 
 ```rust
+// at app setup
 use message::AppState;
+let mut app_state = AppState::new(DOMAIN, Address::ZERO);
 
+// ...
+
+// main app loop
 let raw_batch = ...; // obtain raw batch from eg libcmt.
 
-let mut app_state = AppState::new(DOMAIN, Address::ZERO);
 let batch = app_state
     .verify_raw_batch(&raw_batch)
     .expect("failed to parse batch");
