@@ -25,8 +25,7 @@ use celestia_types::blob::GasPrice;
 use celestia_types::nmt::Namespace;
 use celestia_types::Blob;
 use es_version::SequencerVersion;
-use message::{AppNonces, BatchBuilder, WalletState, DOMAIN};
-use message::{EspressoTransaction, WireTransaction};
+use message::{AppNonces, BatchBuilder, SignedTransaction, WalletState, DOMAIN, WireTransaction, EspressoTransaction};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -501,9 +500,8 @@ async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json
 
 async fn submit_transaction(
     State(state): State<Arc<LambdaMutex>>,
-    Json(payload): Json<WireTransaction>,
+    Json(signed_transaction): Json<SignedTransaction>,
 ) -> Result<(StatusCode, ()), (StatusCode, String)> {
-    let signed_transaction = &payload.to_signed_transaction();
     if let Err(e) = signed_transaction.recover(&DOMAIN) {
         return Err((StatusCode::UNAUTHORIZED, e.to_string()));
     };
@@ -513,12 +511,12 @@ async fn submit_transaction(
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         Ok(g) => g,
     };
-    if payload.max_gas_price < gas_price {
+    if signed_transaction.message.max_gas_price < gas_price {
         return Err((
             StatusCode::PAYMENT_REQUIRED,
             format!(
                 "Max gas too small, offered {:}, needed {:}",
-                payload.max_gas_price, gas_price
+                signed_transaction.message.max_gas_price, gas_price
             )
             .to_string(),
         ));
@@ -527,7 +525,7 @@ async fn submit_transaction(
     let sequencer_address = state_lock.config.sequencer_address.clone();
     let transaction_opt = state_lock
         .wallet_state
-        .verify_single(sequencer_address, &payload);
+        .verify_single(sequencer_address, &signed_transaction.to_wire_transaction());
     state_lock.batch_builder.add(signed_transaction.clone());
     if let None = transaction_opt {
         return Err((
@@ -708,7 +706,7 @@ mod tests {
     #[tokio::test]
     async fn transaction_low_gas() {
         let (app, _) = app().await;
-        let transaction = produce_tx(21, 21);
+        let transaction = produce_tx(21, 21).to_signed_transaction();
         let response = app
             .oneshot(make_request(
                 true,
@@ -725,7 +723,7 @@ mod tests {
     #[tokio::test]
     async fn transaction_low_balance() {
         let (app, _) = app().await;
-        let transaction = produce_tx(21, 2000000000);
+        let transaction = produce_tx(21, 2000000000).to_signed_transaction();
         let response = app
             .oneshot(make_request(
                 true,
@@ -742,7 +740,7 @@ mod tests {
     #[tokio::test]
     async fn transaction_success() {
         let (app, _) = app().await;
-        let transaction = produce_tx(0, 2000000000);
+        let transaction = produce_tx(0, 2000000000).to_signed_transaction();
         let response = app
             .oneshot(make_request(
                 true,
@@ -769,7 +767,7 @@ mod tests {
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(&body[..], b"{\"sequencer_payment_address\":\"0x63f9725f107358c9115bc9d86c72dd5823e9b1e6\",\"txs\":[]}");
-        let transaction = produce_tx(0, 2000000000);
+        let transaction = produce_tx(0, 2000000000).to_signed_transaction();
         let response = ServiceExt::<Request<Body>>::ready(&mut service)
             .await
             .unwrap()

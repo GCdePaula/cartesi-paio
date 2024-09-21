@@ -7,9 +7,9 @@ use alloy_core::{
 };
 use alloy_signer::Signature;
 
-use serde::{Deserialize, Serialize};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use derive_more::{Display, Into};
+use serde::{Deserialize, Serialize};
 pub struct WalletState {
     pub domain: Eip712Domain,
 
@@ -25,9 +25,7 @@ impl WalletState {
         batch
             .txs
             .iter()
-            .filter_map(|tx| {
-                self.verify_single(batch.sequencer_payment_address, tx)
-            })
+            .filter_map(|tx| self.verify_single(batch.sequencer_payment_address, tx))
             .collect()
     }
     // TODO: create custom error type in order to explain why it did not work
@@ -52,10 +50,7 @@ impl WalletState {
         tx_opt
     }
 
-    pub fn verify_raw_batch(
-        &mut self,
-        raw_batch: &[u8],
-    ) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
         let batch = Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
@@ -112,10 +107,7 @@ impl AppState {
             .collect()
     }
 
-    pub fn verify_raw_batch(
-        &mut self,
-        raw_batch: &[u8],
-    ) -> postcard::Result<Vec<Transaction>> {
+    pub fn verify_raw_batch(&mut self, raw_batch: &[u8]) -> postcard::Result<Vec<Transaction>> {
         let batch = Batch::from_bytes(raw_batch)?;
         Ok(self.verify_batch(batch))
     }
@@ -177,10 +169,7 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn cost(&self) -> Option<U256> {
-        U256::checked_mul(
-            U256::from(self.max_gas_price),
-            U256::from(self.data.len()),
-        )
+        U256::checked_mul(U256::from(self.max_gas_price), U256::from(self.data.len()))
     }
 }
 
@@ -344,6 +333,16 @@ impl SignedTransaction {
     ) -> Result<Address, SignatureError> {
         let signing_hash = self.message.eip712_signing_hash(&domain);
         self.signature.recover_address_from_prehash(&signing_hash)
+    }
+
+    pub fn to_wire_transaction(&self) -> WireTransaction {
+        WireTransaction {
+            app: self.message.app,
+            nonce: self.message.nonce,
+            max_gas_price: self.message.max_gas_price,
+            data: self.message.data.clone().into(),
+            signature: self.signature,
+        }
     }
 }
 
