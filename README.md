@@ -134,8 +134,6 @@ for tx in batch {
 
 ## `tripa` service
 
-TODO: I'm not sure about these at all; I didn't write this part, I'm gathering this info by reading the code.
-
 Tripa is a sequencer implementation using the Paio SDK.
 It is a centralized sequencer that submits transactions to Ethereum as calldata.
 It exposes the following endpoints:
@@ -154,8 +152,6 @@ get gas price.
 get current batch
 
 ### `POST /transaction`
-
-TODO: not sure this is right... (but conceptually it should be this)
 
 Receives a JSON with the following format:
 
