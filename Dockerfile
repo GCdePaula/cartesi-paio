@@ -12,7 +12,7 @@ WORKDIR /tripa-build/tripa
 RUN cargo build --release
 
 FROM debian:bookworm
-RUN apt-get update && apt-get install libssl3
+RUN apt-get update && apt-get install -y libssl3 ca-certificates
 COPY --from=builder /tripa-build/tripa/target/release/tripa /tripa/tripa
 
 EXPOSE 3000
