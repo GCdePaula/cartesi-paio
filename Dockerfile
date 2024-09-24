@@ -1,14 +1,20 @@
-FROM rustlang/rust:nightly as builder
+FROM rustlang/rust:nightly-bookworm as builder
 
 RUN apt-get update && apt-get install -y protobuf-compiler
 
-WORKDIR /tripa
+WORKDIR /tripa-build
 
-COPY ./tripa ./
+COPY ./tripa /tripa-build/tripa
 
-COPY ./message /message
+COPY ./message /tripa-build/message
 
+WORKDIR /tripa-build/tripa
 RUN cargo build --release
 
+FROM debian:bookworm
+RUN apt-get update && apt-get install libssl3
+COPY --from=builder /tripa-build/tripa/target/release/tripa /tripa/tripa
+
 EXPOSE 3000
-CMD ["./target/release/tripa"]
+WORKDIR /tripa
+CMD ["/tripa/tripa"]

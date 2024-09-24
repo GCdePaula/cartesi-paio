@@ -13,7 +13,7 @@ use alloy_signer::k256::ecdsa;
 use alloy_signer_wallet::LocalWallet;
 use alloy_signer_wallet::Wallet;
 use anyhow::Error;
-use avail_rust::{avail, AvailExtrinsicParamsBuilder, Data, Keypair, SecretUri, SDK};
+use avail_rust::{avail, AvailExtrinsicParamsBuilder, Data, Keypair, SecretUri, WaitFor, SDK};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -25,7 +25,10 @@ use celestia_types::blob::GasPrice;
 use celestia_types::nmt::Namespace;
 use celestia_types::Blob;
 use es_version::SequencerVersion;
-use message::{AppNonces, BatchBuilder, SignedTransaction, WalletState, DOMAIN, WireTransaction, EspressoTransaction};
+use message::{
+    AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, WalletState, WireTransaction,
+    DOMAIN,
+};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -306,11 +309,17 @@ impl Lambda {
                     .app_id(self.config.app_id)
                     .build();
 
-                client
+                let maybe_tx_progress = client
                     .api
                     .tx()
-                    .sign_and_submit(&call, &account, params)
-                    .await?;
+                    .sign_and_submit_then_watch(&call, &account, params)
+                    .await;
+
+                client
+                    .util
+                    .progress_transaction(maybe_tx_progress, WaitFor::BlockInclusion)
+                    .await
+                    .unwrap();
             }
         }
         Ok(())
@@ -415,8 +424,12 @@ async fn main() {
             println!("Building batch...");
             // TODO: investigate why there are no transactions when the batch is empty
             let mut state = state_copy_for_batches.lock().await;
-            let _ = state.build_batch().await.unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(10));
+            if state.batch_builder.txs.len() > 0 {
+                let _ = state.build_batch().await.unwrap();
+            } else {
+                println!("Skipping batch, no transactions");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
     });
 
@@ -434,9 +447,10 @@ async fn main() {
         .route("/transaction", post(submit_transaction))
         // `GET /batch` posts a transaction
         .route("/batch", get(get_batch))
+        .route("/health", get(health))
         .with_state(shared_state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(":::3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -498,6 +512,10 @@ async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json
     (StatusCode::OK, Json(DOMAIN))
 }
 
+async fn health(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode) {
+    (StatusCode::OK)
+}
+
 async fn submit_transaction(
     State(state): State<Arc<LambdaMutex>>,
     Json(signed_transaction): Json<SignedTransaction>,
@@ -507,21 +525,24 @@ async fn submit_transaction(
     };
     // TODO: add logic to calculate wei per byte, now it is wei per gas
     // TODO: send the gas logic to the specific DA backend
-    let gas_price = match get_gas_price(state.clone()).await {
-        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-        Ok(g) => g,
-    };
-    if signed_transaction.message.max_gas_price < gas_price {
-        return Err((
-            StatusCode::PAYMENT_REQUIRED,
-            format!(
-                "Max gas too small, offered {:}, needed {:}",
-                signed_transaction.message.max_gas_price, gas_price
-            )
-            .to_string(),
-        ));
-    }
     let mut state_lock = state.lock().await;
+    // TODO: check gas prices on other DA's
+    if state_lock.config.da_layer == DALayer::EVM {
+        let gas_price = match get_gas_price(state.clone()).await {
+            Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+            Ok(g) => g,
+        };
+        if signed_transaction.message.max_gas_price < gas_price {
+            return Err((
+                StatusCode::PAYMENT_REQUIRED,
+                format!(
+                    "Max gas too small, offered {:}, needed {:}",
+                    signed_transaction.message.max_gas_price, gas_price
+                )
+                .to_string(),
+            ));
+        }
+    }
     let sequencer_address = state_lock.config.sequencer_address.clone();
     let transaction_opt = state_lock
         .wallet_state

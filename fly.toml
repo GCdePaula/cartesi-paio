@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for cartesi-paio-still-sun-6544 on 2024-09-20T21:18:06Z
+# fly.toml app configuration file generated for cartesi-paio-avail-turing on 2024-09-23T12:28:07+02:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'cartesi-paio-still-sun-6544'
+app = 'cartesi-paio-avail-turing'
 primary_region = 'cdg'
 
 [build]
@@ -11,10 +11,21 @@ primary_region = 'cdg'
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = 'suspend'
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+[[files]]
+  guest_path = '/tripa/config_default.toml'
+  local_path = 'config_secret.toml'
 
 [[vm]]
   memory = '1gb'
