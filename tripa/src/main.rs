@@ -16,7 +16,7 @@ use anyhow::Error;
 use avail_rust::{avail, AvailExtrinsicParamsBuilder, Data, Keypair, SecretUri, WaitFor, SDK};
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::StatusCode, http::Method,
     routing::{get, post},
     Json, Router,
 };
@@ -435,7 +435,8 @@ async fn main() {
 
     // initialize tracing
     tracing_subscriber::fmt::init();
-
+    let cors = tower_http::cors::CorsLayer::permissive();
+        
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
         .route("/nonce", get(get_nonce))
@@ -448,7 +449,8 @@ async fn main() {
         // `GET /batch` posts a transaction
         .route("/batch", get(get_batch))
         .route("/health", get(health))
-        .with_state(shared_state);
+        .with_state(shared_state)
+        .layer(cors);
 
     let listener = tokio::net::TcpListener::bind(":::3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -721,7 +723,7 @@ mod tests {
             .unwrap();
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0x539\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
+        assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0x7A69\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
     }
 
     #[tokio::test]
