@@ -438,7 +438,7 @@ async fn main() {
         
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
-        .route("/nonce", get(get_nonce))
+        .route("/nonce", post(get_nonce))
         // `GET /domain` gets the domain
         .route("/domain", get(get_domain))
         // `GET /gas` gets price of gas (see gas function)
