@@ -522,7 +522,7 @@ async fn submit_transaction(
     Json(submitted_transaction): Json<SubmitPointTransaction>,
 ) -> Result<(StatusCode, ()), (StatusCode, String)> {
     let sig = alloy_signer::Signature::from_str(&submitted_transaction.signature);
-    let message = SigningMessage::abi_decode(&alloy_core::primitives::hex::decode(&submitted_transaction.message).unwrap(), true);
+    let message = SigningMessage::abi_decode_params(&alloy_core::primitives::hex::decode(&submitted_transaction.message).unwrap(), true);
 
     if let Err(e) = sig {
         return Err((StatusCode::EXPECTATION_FAILED, e.to_string())); 
@@ -738,7 +738,7 @@ mod tests {
             .unwrap();
         let (status, body) = extract_parts(response).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0x427D5948\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
+        assert_eq!(&body[..], b"{\"name\":\"CartesiPaio\",\"version\":\"0.0.1\",\"chainId\":\"0xaa36a7\",\"verifyingContract\":\"0x0000000000000000000000000000000000000000\"}");
     }
 
     #[tokio::test]
