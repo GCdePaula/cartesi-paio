@@ -297,10 +297,11 @@ impl SignedTransaction {
 mod tests {
     use alloy_core::{
         primitives::Address,
-        sol_types::{eip712_domain, SolStruct},
+        sol_types::{eip712_domain, SolStruct, SolType, SolValue},
     };
+
     use alloy_signer::SignerSync;
-    use alloy_signer_wallet::LocalWallet;
+    use alloy_signer_local::PrivateKeySigner;
     use std::str::FromStr;
 
     use super::*;
@@ -323,7 +324,7 @@ mod tests {
         "#;
 
         let v: SigningMessage = serde_json::from_str(json).unwrap();
-        let signer = LocalWallet::from_str(
+        let signer = PrivateKeySigner::from_str(
             "8114fae7aa0a92c7e3a6015413a54539b4ba9f28254a70f67a3969d73c33509b",
         )
         .unwrap();
@@ -388,5 +389,32 @@ mod tests {
         for tx in batch {
             println!("{:?}", tx);
         }
+    }
+
+    #[test]
+    fn test2() {
+        let x = r#"{"signature":"0xa8103e8b83a3166034ca8df57b110ffc5dfeaf326ba0081a1b69aeed2646f53d19980a621119b0ad54dbeb6aae8c8bfad469a90c41d2a8694266e0c4fca5206c1c","message":"0x000000000000000000000000ab7528bb862fb57e8a2bcd567a2e929a0be56a5e0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000cdeadbeefdeadbeefdeadbeef0000000000000000000000000000000000000000"}"#;
+
+        let s = Signature::from_str("0xa8103e8b83a3166034ca8df57b110ffc5dfeaf326ba0081a1b69aeed2646f53d19980a621119b0ad54dbeb6aae8c8bfad469a90c41d2a8694266e0c4fca5206c1c").unwrap();
+
+        let a = alloy_core::hex::decode("0x000000000000000000000000ab7528bb862fb57e8a2bcd567a2e929a0be56a5e0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000cdeadbeefdeadbeefdeadbeef0000000000000000000000000000000000000000").unwrap();
+
+        let m = <SigningMessage as SolType>::abi_decode_params(&a, true).unwrap();
+        let tx = SignedTransaction {
+            message: m,
+            signature: s,
+        };
+
+        let mut builder = BatchBuilder::new(Address::ZERO);
+        builder.add(tx);
+        let batch = builder.build();
+        println!("{:?}", alloy_core::hex::encode(batch.to_bytes()));
+        println!("{:?}", Batch::from_bytes(&batch.to_bytes()));
+        println!(
+            "{:?}",
+            Batch::from_bytes(
+                &alloy_core::hex::decode(alloy_core::hex::encode(batch.to_bytes())).unwrap()
+            )
+        );
     }
 }
