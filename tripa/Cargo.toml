@@ -17,19 +17,19 @@ message = { path = "../message" }
 toml = "0.8.14"
 reqwest = "0.12.4"
 anyhow = "1.0.86"
-alloy = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-consensus = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-network = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
+alloy = { version = "0.3.6" }
+alloy-node-bindings = { version = "0.3.6" }
+alloy-consensus = { version = "0.3.6" }
+alloy-network = { version = "0.3.6" }
+alloy-rpc-types = { version = "0.3.6" }
 alloy-json-abi = "0.7.6"
-alloy-contract = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-#alloy-signer-local = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-core = { version = "0.7.6", features = ["sol-types", "serde", "json"] }
-alloy-signer = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }
-alloy-provider = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0.1.0", rev = "b64f434" }
-alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }
+alloy-contract = { version = "0.3.6" }
+#alloy-signer-local = { version = "0.3.6" }
+alloy-core = { version = "0.8.5", features = ["sol-types", "serde", "json"] }
+alloy-signer = { version = "0.3.6", features = ["eip712"] }
+alloy-provider = { version = "0.3.6", features = ["reqwest"] }
+alloy-transport-http = { version = "0.3.6" }
+alloy-signer-local = { version = "0.3.6", features = ["eip712"] }
 futures-util = "0.3.30"
 avail-rust = { git = "https://github.com/availproject/avail", rev="5dc73fb028eed1413a1f15ee22c8a9641b0d23a8"}
 surf-disco = "0.9"

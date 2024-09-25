@@ -4,29 +4,26 @@ use alloy_core::{
     sol,
     sol_types::{Eip712Domain, SolType},
 };
-use alloy_network::EthereumSigner;
+use alloy_network::EthereumWallet;
 use alloy_node_bindings::Anvil;
 use alloy_node_bindings::AnvilInstance;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types::TransactionRequest;
-use alloy_signer::k256::ecdsa;
-use alloy_signer_wallet::LocalWallet;
-use alloy_signer_wallet::Wallet;
+use alloy_signer_local::PrivateKeySigner;
 use anyhow::Error;
 use avail_rust::{avail, AvailExtrinsicParamsBuilder, Data, Keypair, SecretUri, WaitFor, SDK};
 use axum::{
     extract::State,
-    http::StatusCode, http::Method,
+    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
 use celestia_rpc::BlobClient;
-use celestia_types::blob::GasPrice;
-use celestia_types::nmt::Namespace;
-use celestia_types::Blob;
+use celestia_types::{nmt::Namespace, Blob, TxConfig};
 use es_version::SequencerVersion;
 use message::{
-    AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, SigningMessage, SubmitPointTransaction, WalletState, WireTransaction, DOMAIN
+    AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, SigningMessage,
+    SubmitPointTransaction, WalletState, DOMAIN,
 };
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -183,9 +180,9 @@ struct Config {
 }
 
 impl Config {
-    fn get_signer(&self) -> Wallet<ecdsa::SigningKey> {
+    fn get_signer(&self) -> PrivateKeySigner {
         self.sequencer_signer_string
-            .parse::<alloy_signer_wallet::LocalWallet>()
+            .parse::<alloy_signer_local::PrivateKeySigner>()
             .expect("Could not parse sequencer signature")
     }
 }
@@ -217,7 +214,7 @@ impl Lambda {
 
                 let provider = ProviderBuilder::new()
                     .with_recommended_fillers()
-                    .signer(EthereumSigner::from(signer.clone()))
+                    .wallet(EthereumWallet::from(signer.clone()))
                     .on_http(self.config.base_url.parse().unwrap());
                 // TODO: try to use the lambda's provider instead, but it seems that
                 //       it cannot be cloned. or something
@@ -276,7 +273,7 @@ impl Lambda {
                 .unwrap();
 
                 client
-                    .blob_submit(&[blob], GasPrice::default())
+                    .blob_submit(&[blob], TxConfig::default())
                     .await
                     .unwrap();
             }
@@ -355,14 +352,14 @@ async fn main() {
     // Create a provider with the HTTP transport using the `reqwest` crate.
     let (provider, signer) = if USE_LOCAL_ANVIL {
         let anvil = Anvil::new().try_spawn().expect("Anvil not working");
-        let signer: LocalWallet = anvil.keys()[0].clone().into();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
         let rpc_url: String = anvil.endpoint().parse().expect("Could not get Anvil's url");
         config.base_url = rpc_url.clone();
         (
             Box::new(
                 ProviderBuilder::new()
                     .with_recommended_fillers()
-                    .signer(EthereumSigner::from(signer.clone()))
+                    .wallet(EthereumWallet::from(signer.clone()))
                     .on_http(config.base_url.parse().unwrap()),
             ),
             signer,
@@ -370,13 +367,13 @@ async fn main() {
     } else {
         let signer = config
             .sequencer_signer_string
-            .parse::<alloy_signer_wallet::LocalWallet>()
+            .parse::<alloy_signer_local::PrivateKeySigner>()
             .expect("Could not parse sequencer signature");
         (
             Box::new(
                 ProviderBuilder::new()
                     .with_recommended_fillers()
-                    .signer(EthereumSigner::from(signer.clone()))
+                    .wallet(EthereumWallet::from(signer.clone()))
                     .on_http(config.base_url.parse().unwrap()),
             ),
             signer,
@@ -435,7 +432,7 @@ async fn main() {
     // initialize tracing
     tracing_subscriber::fmt::init();
     let cors = tower_http::cors::CorsLayer::permissive();
-        
+
     let app = Router::new()
         // `GET /nonce` gets user nonce (see nonce function)
         .route("/nonce", post(get_nonce))
@@ -513,8 +510,8 @@ async fn get_domain(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode, Json
     (StatusCode::OK, Json(DOMAIN))
 }
 
-async fn health(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode) {
-    (StatusCode::OK)
+async fn health(State(_state): State<Arc<LambdaMutex>>) -> StatusCode {
+    StatusCode::OK
 }
 
 async fn submit_transaction(
@@ -522,19 +519,22 @@ async fn submit_transaction(
     Json(submitted_transaction): Json<SubmitPointTransaction>,
 ) -> Result<(StatusCode, ()), (StatusCode, String)> {
     let sig = alloy_signer::Signature::from_str(&submitted_transaction.signature);
-    let message = SigningMessage::abi_decode_params(&alloy_core::primitives::hex::decode(&submitted_transaction.message).unwrap(), true);
+    let message = SigningMessage::abi_decode_params(
+        &alloy_core::primitives::hex::decode(&submitted_transaction.message).unwrap(),
+        true,
+    );
 
     if let Err(e) = sig {
-        return Err((StatusCode::EXPECTATION_FAILED, e.to_string())); 
+        return Err((StatusCode::EXPECTATION_FAILED, e.to_string()));
     }
 
     if let Err(e) = message {
-        return Err((StatusCode::EXPECTATION_FAILED, e.to_string())); 
+        return Err((StatusCode::EXPECTATION_FAILED, e.to_string()));
     }
 
     let signed_transaction = SignedTransaction {
         signature: sig.unwrap(),
-        message: message.unwrap()
+        message: message.unwrap(),
     };
 
     if let Err(e) = signed_transaction.recover(&DOMAIN) {
@@ -603,16 +603,16 @@ mod tests {
             config.base_url = rpc_url.clone();
         }
 
-        let signer: LocalWallet = anvil.keys()[0].clone().into();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
 
         let sequencer_address = config
             .sequencer_signer_string
-            .parse::<alloy_signer_wallet::LocalWallet>()
+            .parse::<alloy_signer_local::PrivateKeySigner>()
             .expect("Could not parse sequencer signature");
 
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
-            .signer(EthereumSigner::from(signer.clone()))
+            .wallet(EthereumWallet::from(signer.clone()))
             .on_http(config.base_url.clone().parse().unwrap());
 
         if DEPLOY_INPUT_BOX {
@@ -666,7 +666,7 @@ mod tests {
         "#
         );
         let v: SigningMessage = serde_json::from_str(&json).unwrap();
-        let signer = LocalWallet::random();
+        let signer = PrivateKeySigner::random();
         let signature = signer.sign_typed_data_sync(&v, &DOMAIN).unwrap();
         let signed_transaction = SignedTransaction {
             message: v,
