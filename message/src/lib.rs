@@ -322,6 +322,7 @@ pub struct SignedTransaction {
     pub signature: Signature,
 }
 
+
 impl SignedTransaction {
     pub fn valdiate(&self, domain: &Eip712Domain) -> bool {
         self.recover(domain).is_ok()
@@ -352,6 +353,12 @@ pub const DOMAIN: Eip712Domain = eip712_domain!(
    chain_id: 31337,
    verifying_contract: Address::ZERO,
 );
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub struct SubmitPointTransaction {
+    pub message: String,
+    pub signature: String
+}
 
 #[cfg(test)]
 mod tests {

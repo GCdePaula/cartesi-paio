@@ -2,7 +2,7 @@
 use alloy_core::{
     primitives::{address, Address, Bytes, U256},
     sol,
-    sol_types::Eip712Domain,
+    sol_types::{Eip712Domain, SolType},
 };
 use alloy_network::EthereumSigner;
 use alloy_node_bindings::Anvil;
@@ -26,8 +26,7 @@ use celestia_types::nmt::Namespace;
 use celestia_types::Blob;
 use es_version::SequencerVersion;
 use message::{
-    AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, WalletState, WireTransaction,
-    DOMAIN,
+    AppNonces, BatchBuilder, EspressoTransaction, SignedTransaction, SigningMessage, SubmitPointTransaction, WalletState, WireTransaction, DOMAIN
 };
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -520,8 +519,24 @@ async fn health(State(_state): State<Arc<LambdaMutex>>) -> (StatusCode) {
 
 async fn submit_transaction(
     State(state): State<Arc<LambdaMutex>>,
-    Json(signed_transaction): Json<SignedTransaction>,
+    Json(submitted_transaction): Json<SubmitPointTransaction>,
 ) -> Result<(StatusCode, ()), (StatusCode, String)> {
+    let sig = alloy_signer::Signature::from_str(&submitted_transaction.signature);
+    let message = SigningMessage::abi_decode(&alloy_core::primitives::hex::decode(&submitted_transaction.message).unwrap(), true);
+
+    if let Err(e) = sig {
+        return Err((StatusCode::EXPECTATION_FAILED, e.to_string())); 
+    }
+
+    if let Err(e) = message {
+        return Err((StatusCode::EXPECTATION_FAILED, e.to_string())); 
+    }
+
+    let signed_transaction = SignedTransaction {
+        signature: sig.unwrap(),
+        message: message.unwrap()
+    };
+
     if let Err(e) = signed_transaction.recover(&DOMAIN) {
         return Err((StatusCode::UNAUTHORIZED, e.to_string()));
     };
