@@ -25,9 +25,16 @@ Fund account:
 
 Run `tripa`:
 
-    cargo run
+    cargo run --bin main
 
 try to change privacy_file_unique_origin to false in about:config, restart firefox and see if this can make a difference (please note that this makes you vulnerable to the described security problem though). 
+
+Running the batch decoder
+=========================
+
+Here is an example:
+
+    cat example_batch.hex | cargo run --bin decode
 
 Testing
 =======

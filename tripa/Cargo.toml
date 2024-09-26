@@ -1,3 +1,15 @@
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[[bin]]
+name = "decode"
+path = "src/decode.rs"
+
+[[bin]]
+name = "example"
+path = "src/example.rs"
+
 [package]
 name = "tripa"
 version = "0.1.0"
@@ -31,3 +43,4 @@ alloy-transport-http = { git = "https://github.com/alloy-rs/alloy", version = "0
 alloy-signer-wallet = { git = "https://github.com/alloy-rs/alloy", features = ["eip712"], rev = "b64f434" }
 futures-util = "0.3.30"
 tower-http = { version = "0.5.2", features = ["cors"] }
+hex = "0.4.3"

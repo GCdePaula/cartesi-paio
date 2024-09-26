@@ -3122,6 +3122,7 @@ dependencies = [
  "anyhow",
  "axum",
  "futures-util",
+ "hex",
  "http-body-util",
  "message",
  "mime",
