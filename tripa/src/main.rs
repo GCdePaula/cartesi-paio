@@ -1,4 +1,3 @@
-#![feature(async_closure)]
 use alloy_core::{
     primitives::{address, Address, Bytes, U256},
     sol,
